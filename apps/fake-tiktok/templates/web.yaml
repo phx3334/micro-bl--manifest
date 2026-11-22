@@ -1,0 +1,46 @@
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: {{ include "fake-tiktok.namespace" . }}
+  labels:
+    app: web
+    {{- include "fake-tiktok.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.web.replicas }}
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+        {{- include "fake-tiktok.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "fake-tiktok.fullname" . }}-app
+      {{- with .Values.images.pullSecret }}
+      imagePullSecrets:
+        - name: {{ . }}
+      {{- end }}
+      containers:
+        - name: web
+          image: {{ include "fake-tiktok.image" (dict "root" . "component" "web") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          ports:
+            - name: web-http
+              containerPort: {{ .Values.web.port }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: web-http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: web-http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.web.resources | nindent 12 }}

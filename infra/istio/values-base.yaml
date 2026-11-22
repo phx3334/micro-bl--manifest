@@ -1,0 +1,6 @@
+# istio/base chart：只装 CRD 与集群级 RBAC，不含控制面进程
+# base chart 的 values 很少：模板实际只消费 global.istioNamespace 一个键。
+
+global:
+  # CRD/RBAC 落在哪个命名空间（base 模板里 webhook、reader SA 用它），默认也是这个值
+  istioNamespace: istio-system

@@ -1,0 +1,31 @@
+# metrics-server：HPA（istiod / ingressgateway / 业务）依赖它提供指标。
+# kubeadm 集群的 kubelet 是自签证书，必须加 --kubelet-insecure-tls。
+---
+- name: 添加 metrics-server Helm 仓库
+  command: helm repo add --force-update metrics-server {{ helm_repos.metrics_server }}
+  changed_when: false
+
+- name: 更新 metrics-server 仓库索引
+  command: helm repo update metrics-server
+  changed_when: false
+
+- name: 安装 metrics-server
+  command:
+    - helm
+    - upgrade
+    - --install
+    - metrics-server
+    - metrics-server/metrics-server
+    - --namespace
+    - kube-system
+    - --version
+    - "{{ chart_versions.metrics_server }}"
+    - --set
+    - "args={--kubelet-insecure-tls}"
+    - --wait
+    - --timeout
+    - 5m
+
+- name: 等待 metrics.k8s.io APIService 可用
+  command: kubectl wait --for=condition=Available apiservice/v1beta1.metrics.k8s.io --timeout=300s
+  changed_when: false

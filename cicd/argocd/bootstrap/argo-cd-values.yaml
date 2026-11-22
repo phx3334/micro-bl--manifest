@@ -1,0 +1,100 @@
+# Argo CD（chart argo-cd 10.18.0 / Argo CD v3.6.1）
+#
+# 安装：
+#   helm repo add argo https://argoproj.github.io/argo-helm
+#   helm upgrade --install argocd argo/argo-cd -n argocd --create-namespace \
+#     --version 10.18.0 -f argo-cd-values.yaml
+#   kubectl apply -f cicd/argocd/bootstrap/appproject.yaml          # 必须先于 root
+#   kubectl apply -f cicd/argocd/bootstrap/root-application-prod.yaml
+#
+# 初始密码已在上方 configs.secret 固定为 147258（账号 admin）；
+# 如需改用随机初始密码，删除该段并在安装后执行：
+#   kubectl -n argocd get secret argocd-initial-admin-secret \
+#     -o jsonpath='{.data.password}' | base64 -d
+#
+# 定位：Argo CD 是"引导层"，自己不由 Argo CD 管理（和 Tekton 平台同理）。
+# 它接管的是 infra/overlays/<env> 与 apps/fake-tiktok 两类 Application。
+
+# NodePort 直连，不走域名；server 关闭内置 TLS（HTTP 到 NodePort）。
+# 生产应改回 TLS + Ingress/LB，并开启 SSO。
+global:
+  domain: ""
+
+configs:
+  # 内置管理员账号名固定为 admin（Argo CD 不支持改名）；密码统一为 147258，
+  # 这里存的是其 bcrypt 哈希（改密码需重新生成，不要直接填明文）
+  secret:
+    argocdServerAdminPassword: "$2b$10$nRDHmQXCh0Czozl0sYpywOYlJfY205VzVusjrnAViNLiDaa79Fiye"
+    argocdServerAdminPasswordMtime: "2026-11-21T00:00:00Z"
+  params:
+    # 浏览器直接访问 NodePort，不需要 ArgoCD 自己再套一层 TLS；
+    # 生产改为 false + Ingress 终止 TLS
+    server.insecure: true
+  cm:
+    # Git 变更后 60s 内发现；默认 3 分钟对演示太长
+    timeout.reconciliation: 60s
+  rbac:
+    # 只有一个内置 admin（dex 关闭、无 SSO）。默认策略设为只读：
+    # 以后新增的本地账号不会默认拿到写权限，要显式授权。
+    policy.default: role:readonly
+    policy.csv: |
+      g, admin, role:admin
+
+server:
+  replicas: 1
+  service:
+    type: NodePort
+    # 与既有端口不冲突：30080 istio、30081 tekton webhook、30082 argocd
+    nodePortHttp: 30082
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+controller:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+repoServer:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+applicationSet:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+redis:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# 单集群 demo 不需要 SSO 和通知
+dex:
+  enabled: false
+notifications:
+  enabled: false

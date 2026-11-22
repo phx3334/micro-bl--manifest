@@ -1,0 +1,34 @@
+
+ipam:
+  mode: kubernetes
+
+
+kubeProxyReplacement: false
+
+
+rollOutCiliumPods: true
+
+hubble:
+  enabled: true
+  relay:
+    enabled: true
+  ui:
+    enabled: true
+    service:
+
+      type: NodePort
+      nodePort: 30400
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+
+operator:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi

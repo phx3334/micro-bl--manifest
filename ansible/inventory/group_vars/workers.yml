@@ -1,0 +1,5 @@
+# 工作节点：数据盘 /dev/vdb（80G ESSD）挂到 /data，
+# containerd 镜像与 kubelet 数据也放进去，避免 40G 系统盘被镜像撑爆
+worker_data_disk_device: /dev/vdb
+containerd_root: /data/containerd
+kubelet_root_dir: /data/kubelet

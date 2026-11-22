@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: observability
+
+resources:
+  - deployment.yaml
+
+# 配置文件从文件现场生成 ConfigMap，仓库是唯一来源
+configMapGenerator:
+  - name: grafana-provisioning
+    files:
+      - datasources.yaml
+      - dashboards.yaml
+  - name: grafana-dashboards
+    files:
+      - dashboards/fake-tiktok-overview.json
+      - dashboards/fake-tiktok-middleware.json

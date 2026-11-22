@@ -1,0 +1,107 @@
+# kube-prometheus-stack（Prometheus Operator 全家桶）
+#
+# 为什么换成这个：ServiceMonitor / PodMonitor / PrometheusRule 都是 Operator 的 CRD，
+# 必须由 prometheus-operator 负责把它们渲染成 Prometheus 的抓取与规则配置。
+# 单独的 prometheus chart 没有 operator，接不了 ServiceMonitor。
+#
+# 抓取声明只有一个：otel-collector 的 :8889
+#   业务四个进程的指标经 OTLP 推送到 collector，业务侧不再暴露 /metrics、也不再生成 ServiceMonitor
+#   见 observability/prometheus/manifests/servicemonitor-collector.yaml
+# SLO 规则：observability/prometheus/manifests/prometheusrule-slo.yaml
+
+prometheus:
+  # 内部组件：保持 ClusterIP；只有 Grafana 这种"给人看"的入口才走 NodePort。
+  service:
+    type: ClusterIP
+  prometheusSpec:
+    retention: 15d
+    scrapeInterval: 15s
+    evaluationInterval: 15s
+
+    # exemplar 必须显式开启存储：spanmetrics 的 exemplars.enabled 会产出带 trace_id
+    # 的 exemplar，但 Prometheus 默认丢弃它 —— 不开这个，Grafana 从指标点跳 trace
+    # 的功能永远点不动，且不会有任何报错。
+    enableFeatures:
+      - exemplar-storage
+
+    # 关键三行：默认 Prometheus 只发现带 release=<Helm release 名> 标签的 CR。
+    # 业务 Chart 生成的 ServiceMonitor/PodMonitor 不带这个标签，必须关掉"沿用 Helm values 的 selector"，
+    # 否则所有业务指标都抓不到，且 /targets 里什么都看不到。
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 8Gi
+
+alertmanager:
+  enabled: true
+  # 内部组件：告警由 Alertmanager 自己投递，UI 只用于排障，保持 ClusterIP
+  # （需要看界面时 kubectl port-forward）。
+  service:
+    type: ClusterIP
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      # 未接通知渠道时用 "null" 接收器：告警仍可在 UI 里看到，只是不外发
+      receiver: "null"
+      group_by: [alertname, service_name]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        - matchers:
+            - severity=critical
+          receiver: "null"
+          repeat_interval: 1h
+    receivers:
+      - name: "null"
+  
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+    storage:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 1Gi
+
+# Grafana 由 observability/grafana 单独维护，避免同一个组件两处部署
+grafana:
+  enabled: false
+
+# 节点级与集群对象级指标：生产标配，保留
+nodeExporter:
+  enabled: true
+kubeStateMetrics:
+  enabled: true
+
+prometheusOperator:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi

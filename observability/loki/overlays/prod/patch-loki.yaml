@@ -1,0 +1,20 @@
+# prod：14 天保留 + 更大资源（日志洪峰时 ingestion burst 先吃内存）
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+spec:
+  template:
+    spec:
+      containers:
+        - name: loki
+          env:
+            - name: LOKI_RETENTION
+              value: 336h
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi

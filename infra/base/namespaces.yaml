@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-system
+  labels:
+    purpose: platform
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: middleware
+  labels:
+    purpose: middleware
+    # 刻意不注入 sidecar：中间件的加密由应用层单向 TLS 承担（cert-manager 签发 +
+    # 客户端 pkg/tlsx / SSL_CERT_FILE 验根），端到端覆盖 sidecar 管不到的路径——
+    # 浏览器 NodePort 直链、Tempo 网格外读 S3、Prometheus 抓 exporter、exporter 走 localhost。
+    # 注入的收益只有非 HTTP 协议（mysql/redis/kafka）的 L4 统计，可观测性早已由 exporter 覆盖；
+    # 成本却是双重加密 + 一组指标抓取例外（9104/9121/9308 的 PERMISSIVE）。故整体不进网格。
+    # 副作用：业务 sidecar 对无 sidecar 目标自动降级明文（与 MinIO 同路径，已验证）。
+    # 已部署集群改此 label 后，存量 Pod 要 rollout restart 才会摘掉 sidecar。
+    istio-injection: disabled
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+  labels:
+    purpose: observability
+    # 刻意不注入 sidecar：Prometheus 要在网格外抓取（注入后对 K8s API 的访问
+    # 需要额外 exclude，抓取链路多一跳，收益低）；Tempo/Loki/Grafana 同理。
+    istio-injection: disabled
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fake-tiktok
+  labels:
+    purpose: application
+    # 业务三服务 + worker + web 全部注入：服务间 gRPC 调用、到中间件的访问都自动 mTLS
+    istio-injection: enabled

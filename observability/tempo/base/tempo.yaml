@@ -1,0 +1,64 @@
+# Tempo 单机模式（target=all：单个进程同时承担 distributor / ingester / querier / compactor 全部角色）
+#
+# 数据流：collector ──OTLP gRPC──▶ 本进程 4317 ──▶ ingester 写 WAL ──▶ flush 成 block ──▶ 上传 MinIO
+#
+# 三个与环境相关的值不写死，由 Deployment 的 env 注入（需 -config.expand-env=true）：
+#   TEMPO_S3_BUCKET       桶名（prod: tempo-prod）
+#   TEMPO_S3_ENDPOINT     对象存储地址（默认 minio:9000）
+#   TEMPO_BLOCK_RETENTION 保留期（compactor 按块清理）
+# S3 凭据从 Secret 注入，不写进配置文件。
+
+target: all
+
+# ── 端口分三组，别混 ─────────────────────────────────────────────
+#   3200：Tempo 自己的 HTTP API（查询、内置 UI、/ready 探针），Grafana 数据源连这个
+#   9095：组件之间的内部 gRPC（distributor ↔ ingester ↔ querier），单机模式是自己连自己，不对外暴露
+#   4317/4318：真正的数据入口，见下方 distributor.receivers
+server:
+  http_listen_port: 3200
+  grpc_listen_port: 9095
+
+# ── 接收端：collector 把 trace 推到这里 ──────────────────────────
+# 本项目 collector 的 exporter 用的是 gRPC（endpoint: tempo:4317），
+# 4318（OTLP HTTP）目前没有使用者，保留是为了以后切换协议时不用改 Service。
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+# ── 存储：最终数据在对象存储，本地盘只放写前日志 ─────────────────
+storage:
+  trace:
+    backend: s3
+    s3:
+      bucket: ${TEMPO_S3_BUCKET:-tempo}
+      # MinIO 在 middleware 命名空间，本 Pod 在 observability：跨命名空间短名不解析
+      endpoint: ${TEMPO_S3_ENDPOINT:-minio.middleware:9000}
+      # MinIO 不校验 region，但 AWS SDK 要求非空，填任意值即可
+      region: us-east-1
+      access_key: ${TEMPO_S3_ACCESS_KEY}
+      secret_key: ${TEMPO_S3_SECRET_KEY}
+      # MinIO 已开单向 TLS：insecure=false 表示走 https 并校验服务端证书。
+      # 容器内挂了内部根 CA 并设 SSL_CERT_FILE（见 deployment.yaml），
+      # 所以 Go 的默认证书池能信任 cert-manager 签的 minio-tls。
+      # 仍然必须开 path-style，否则 SDK 会拼出 bucket.minio:9000 这种非法域名。
+      insecure: false
+      forcepathstyle: true
+    # WAL（写前日志）：ingester 收到 span 先追加写这里，保证进程崩溃不丢还没 flush 的数据；
+    # flush 成 block 上传 MinIO 后对应段落才清理。必须落在本地盘（PVC），不能放对象存储。
+    wal:
+      path: /var/tempo/wal
+
+# ── 保留期：靠 compactor 删整块，不是删文件 ─────────────────────
+# 只有 compactor 正常运行时过期数据才会被回收；它没跑起来，MinIO 里的 block 会一直涨。
+compactor:
+  compaction:
+    block_retention: ${TEMPO_BLOCK_RETENTION:-168h}
+
+# 关闭匿名使用统计上报
+usage_report:
+  reporting_enabled: false

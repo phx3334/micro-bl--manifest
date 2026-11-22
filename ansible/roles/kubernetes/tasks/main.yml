@@ -1,0 +1,46 @@
+# kubelet / kubeadm / kubectl：版本钉死并 hold，避免 apt upgrade 时 kubelet
+# 小版本漂移导致控制面与节点版本不一致（kubelet 只能比 apiserver 低一个小版本）
+---
+- name: 创建 apt keyring 目录
+  file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: 下载 Kubernetes apt key（阿里云镜像）
+  get_url:
+    url: "{{ k8s_apt_repo_url }}Release.key"
+    dest: /etc/apt/keyrings/kubernetes-apt-keyring.asc
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: 配置 Kubernetes apt 源（v{{ kubernetes_minor }}）
+  copy:
+    dest: /etc/apt/sources.list.d/kubernetes.list
+    content: |
+      deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.asc] {{ k8s_apt_repo_url }} /
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: 安装指定版本的 kubelet / kubeadm / kubectl
+  apt:
+    name:
+      - "kubelet={{ kube_package_version }}"
+      - "kubeadm={{ kube_package_version }}"
+      - "kubectl={{ kube_package_version }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: 锁定 Kubernetes 组件版本
+  dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - kubelet
+    - kubeadm
+    - kubectl

@@ -1,0 +1,7 @@
+# prod：controller / webhook / cainjector 各 2 副本，靠 leader election 选主；
+# webhook 是准入链路的一部分，单副本会成为证书签发与 Certificate 创建的瓶颈
+replicaCount: 2
+webhook:
+  replicaCount: 2
+cainjector:
+  replicaCount: 2

@@ -1,0 +1,118 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+  # 尾采：对已进管道的 trace 做保留决策（头采已控住进管道总量，这里把名额集中给有信息量的链路）
+  tail_sampling:
+    decision_wait: 10s   # 只保证同步段到齐；转码分钟级长链的异步段靠头采 ParentBased 同进同出
+    policies:
+      - name: errors                 # 服务端故障（span status=ERROR）必留
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: business-failure       # 业务失败必留：HTTP 200 但 result=failed（如转码失败）
+        type: string_attribute
+        string_attribute:
+          key: transcode.result
+          values: [failed]
+      - name: slow                   # 超过 2s 的慢链路必留
+        type: latency
+        latency:
+          threshold_ms: 2000
+      - name: healthy                # 其余健康快链路按比例保留（prod 10%，由 env 注入）
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: ${env:TAIL_SAMPLE_PERCENT:-10}
+  batch:
+    timeout: 5s
+    send_batch_size: 1024           #攒够1024条一起发，没攒够，到5秒自动发
+
+  # 只让「业务 HTTP 中间件」产生的 span 进入 spanmetrics。
+  #
+  # 为什么必须过滤：Istio 开启 sidecar tracing 后，一个请求会额外产生
+  # ingressgateway span + sidecar client/server span。它们的 http_status_code
+  # 会被 spanmetrics 统计，导致 calls_total 重复计数、SLO 口径失真。
+  #
+  # 判断依据用 instrumentation scope：业务 span 的 scope 是 otelx.GinMiddleware 里
+  # 写死的 "fake_tiktok/http"，Istio/Envoy 的 span scope 不是它。
+  #
+  # error_mode: ignore —— 万一 OTTL 表达式在某个 collector 版本不被识别，
+  # 会退化成「不过滤」（span 全部保留），而不是把业务 span 全丢掉。
+  # 部署后必须核对：calls_total 的量应与请求数 1:1，不能翻倍。
+  filter/only-app-spans:
+    error_mode: ignore
+    traces:
+      span:
+        - 'instrumentation_scope.name != "fake_tiktok/http"'
+
+# spanmetrics connector：从 span 派生 RED 指标（calls + duration 直方图），
+# 替代业务代码里的 HTTP RED 埋点。维度只取 span 上天然存在的属性。
+# 只挂在 traces/metrics 管道上，不碰业务指标。指标名统一由 exporter 翻译：
+#   calls → calls_total（counter）
+#   duration（unit=s）→ duration_seconds_bucket（直方图，PromQL/看板按此查）
+connectors:
+  spanmetrics:
+    histogram:
+      unit: s
+      explicit:
+        # 与原业务直方图同桶（秒级）：0.005~30s，避免 spanmetrics 默认桶（毫秒量级）让延迟失真
+        buckets: [0.005s, 0.01s, 0.025s, 0.05s, 0.1s, 0.25s, 0.5s, 1s, 2.5s, 5s, 10s, 30s]
+    dimensions:
+      - name: http.route        # 路由模板，不用真实路径防基数爆炸
+      - name: http.status_code  # 5xx 错误率的来源
+      - name: http.method
+    exemplars:
+      enabled: true              # 指标数据点附带 trace_id：从告警直接跳到具体 trace
+    dimensions_cache_size: 1000
+
+exporters:
+  tempo:
+    endpoint: tempo:4317        #主动发送给Tempo
+    tls:
+      insecure: true
+  prometheus:
+    endpoint: 0.0.0.0:8889        #本机监听端口，需要暴露给 Prometheus 抓取
+    # 四个进程的指标全部推到这里，服务身份靠 resource 属性带出来
+    resource_to_telemetry_conversion:
+      enabled: true               # service.name → service_name 标签，否则所有指标混在一起无法区分来源
+    # 统一由 exporter 生成 Prometheus 方言的名字（OTel 业务侧只表达语义，不手写后缀）：
+    #   counter 补 _total：video_upload → video_upload_total、calls → calls_total
+    #   counter 名已带 total 时会先去重再加，不会出现 _total_total
+    #   有单位的指标补单位：duration(unit=s) → duration_seconds；
+    #   counter_flush_lag_seconds 结尾已是 seconds，去重后保持原名
+    # 指标名是服务契约：升级 collector 前务必 diff 一次 /metrics 的名字集合。
+    add_metric_suffixes: true
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133         
+    path: /health                 #用来让 K8s liveness/readinessProbe 探测这个 Collector 进程是否正常。
+
+service:
+  extensions: [health_check]
+  pipelines:
+    # 双 traces 管道，共用同一 OTLP receiver：
+    #   /metrics 分支：不带尾采，spanmetrics 在"进尾采之前"派生 RED 指标。
+    #     不能放到尾采之后——尾采让错误/慢链路必留、健康只留 10%，用这种有偏 span
+    #     算出的错误率会系统性偏高，SLO 直接失真。
+    #   /sampled 分支：带尾采，决定"哪些 trace 存进 Tempo"。
+    traces/metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, filter/only-app-spans]
+      exporters: [spanmetrics]
+    traces/sampled:
+      receivers: [otlp]
+      processors: [memory_limiter, tail_sampling, batch]
+      exporters: [tempo]
+    metrics:
+      receivers: [otlp, spanmetrics]   # 业务推送指标 + span 派生指标汇到同一出口
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]

@@ -1,0 +1,33 @@
+# 生成其他节点 join 所需的三样东西（不落盘、不入库）：
+#   1) bootstrap token（4 小时有效）
+#   2) CA 公钥 sha256（防中间人）
+#   3) certificate key（--control-plane 加入时解密 kubeadm-certs）
+---
+- name: 生成 bootstrap token
+  command: kubeadm token create --ttl 4h
+  register: join_token_raw
+  changed_when: false
+
+- name: 计算 CA 公钥 sha256
+  shell: |
+    set -o pipefail
+    openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt \
+      | openssl rsa -pubin -outform der 2>/dev/null \
+      | openssl dgst -sha256 -hex | sed 's/^.* //'
+  args:
+    executable: /bin/bash
+  register: join_ca_hash_raw
+  changed_when: false
+
+- name: 重新上传控制面证书并生成 certificate key
+  shell: kubeadm init phase upload-certs --upload-certs | tail -n 1
+  args:
+    executable: /bin/bash
+  register: join_cert_key_raw
+  changed_when: false
+
+- name: 记录 join 参数
+  set_fact:
+    join_token: "{{ join_token_raw.stdout | trim }}"
+    join_ca_hash: "{{ join_ca_hash_raw.stdout | trim }}"
+    join_certificate_key: "{{ join_cert_key_raw.stdout | trim }}"

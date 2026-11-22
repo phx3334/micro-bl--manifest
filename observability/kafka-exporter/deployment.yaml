@@ -1,0 +1,93 @@
+# kafka-exporter：Kafka broker + 消费组 lag 指标
+#
+# 为什么不用 bitnami/kafka 的 metrics 段（JMX）：
+#   JMX 只有 broker 侧指标，没有"worker 四个消费组落后多少条"——后者才是这个项目
+#   最需要告警/驱动 KEDA 的信号。
+# 连接：跨命名空间 DNS kafka.middleware.svc:9092。Kafka client listener 是 SSL
+#   （单向 TLS，见 infra/middleware/kafka/values），无 SASL/ACL——能连上就能读写，
+#   访问控制靠网络边界（middleware 不进网格后即 K8s NetworkPolicy / 集群内可达性）。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-exporter
+  labels:
+    app.kubernetes.io/name: kafka-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafka-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kafka-exporter
+    spec:
+      # 只连 Kafka 并暴露指标，不访问 K8s API → 不挂载 SA token
+      automountServiceAccountToken: false
+      containers:
+        - name: kafka-exporter
+          image: danielqsj/kafka-exporter:v1.8.0
+          args:
+            - --kafka.server=kafka.middleware.svc:9092
+            # 只盯 worker 消费组，避免把内部/临时消费组也拉进指标
+            - --group.filter=worker.*
+            # Kafka client listener 已改 SSL（单向 TLS）：只验 broker，不出示客户端证书
+            - --tls.enabled
+            - --tls.ca-file=/certs/internal-ca.crt
+          volumeMounts:
+            - name: internal-ca
+              mountPath: /certs
+              readOnly: true
+          ports:
+            - name: kafka-metrics
+              containerPort: 9308
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: kafka-metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: internal-ca
+          configMap:
+            name: internal-ca
+            items:
+              - key: ca.crt
+                path: internal-ca.crt
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-exporter
+  labels:
+    app.kubernetes.io/name: kafka-exporter
+spec:
+  selector:
+    app.kubernetes.io/name: kafka-exporter
+  ports:
+    - name: kafka-metrics
+      port: 9308
+      targetPort: kafka-metrics
+---
+# ServiceMonitor 放这里而不是 prometheus/manifests：与被采集对象同目录，一起 apply -k
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kafka-exporter
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafka-exporter
+  endpoints:
+    - port: kafka-metrics
+      path: /metrics
+      interval: 30s   # lag 不需要 15s 粒度，降一半抓取频率省存储

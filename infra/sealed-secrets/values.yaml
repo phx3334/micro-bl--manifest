@@ -1,0 +1,21 @@
+# Sealed Secrets 控制器（chart 2.22.0 / 控制器 v0.41.2）
+#
+# 安装（bootstrap 阶段，必须先于任何 SealedSecret 及依赖它的工作负载）：
+#   helm repo add sealed-secrets https://bitnami.github.io/sealed-secrets
+#   helm upgrade --install sealed-secrets-controller sealed-secrets/sealed-secrets \
+#     -n kube-system --version 2.22.0 -f values.yaml
+#
+# 两个容易踩的坑：
+#   1. 旧仓库地址 bitnami-labs.github.io 已失效（GitHub Pages 404），必须用 bitnami.github.io。
+#   2. release 名固定为 sealed-secrets-controller：kubeseal 默认就按这个名字找 Service。
+#
+# 密钥对由控制器首次启动自动生成，保存在 kube-system 的 sealed-secrets-key。
+# 它是解密的唯一凭据：必须异地备份（见 README），否则换集群后所有 SealedSecret 永久失效。
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi

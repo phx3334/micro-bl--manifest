@@ -1,0 +1,24 @@
+# 固定 NodePort 的 webhook 入口
+#
+# 为什么不直接用 EventListener 自动生成的 Service：
+# 它的 NodePort 是随机分配的，GitHub 仓库 Webhook 里填的 Payload URL 需要稳定地址，
+# 随机端口每次重装都要改 GitHub 仓库的 Webhook 配置。这里用固定 30081 选择同一组 Pod。
+#
+# 安全边界：30081 只暴露 EventListener 的 sink，签名校验由 github interceptor 完成；
+# 但公网可达意味着任何人可以打这个端口，HMAC 是唯一防线——secret 必须够长且不泄露。
+apiVersion: v1
+kind: Service
+metadata:
+  name: github-listener
+  namespace: platform-system
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+spec:
+  type: NodePort
+  selector:
+    eventlistener: github-listener
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      nodePort: 30081

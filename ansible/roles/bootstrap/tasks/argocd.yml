@@ -1,0 +1,55 @@
+# ArgoCD：引导层，自己不由 GitOps 管理。
+# 安装后 apply AppProject + root Application，之后 infra/overlays/prod 与 apps/fake-tiktok
+# 全部由它接管。
+---
+- name: 添加 Argo Helm 仓库
+  command: helm repo add --force-update argo {{ helm_repos.argo }}
+  changed_when: false
+
+- name: 更新 Argo 仓库索引
+  command: helm repo update argo
+  changed_when: false
+
+- name: 创建 ArgoCD 清单目录
+  file:
+    path: "{{ ansible_workdir }}/argocd"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: 复制 ArgoCD bootstrap 清单
+  copy:
+    src: "{{ infra_repo }}/cicd/argocd/bootstrap"
+    dest: "{{ ansible_workdir }}/argocd/"
+
+- name: 安装 ArgoCD
+  command:
+    - helm
+    - upgrade
+    - --install
+    - argocd
+    - argo/argo-cd
+    - --namespace
+    - argocd
+    - --create-namespace
+    - --version
+    - "{{ chart_versions.argo_cd }}"
+    - --values
+    - "{{ ansible_workdir }}/argocd/bootstrap/argo-cd-values.yaml"
+    - --values
+    - "{{ ansible_workdir }}/argocd/bootstrap/argo-cd-values-prod.yaml"
+    - --wait
+    - --timeout
+    - 10m
+
+- name: 等待 argocd-server 就绪
+  command: kubectl -n argocd rollout status deployment/argocd-server --timeout=300s
+  changed_when: false
+
+# AppProject 必须先于 root Application，否则子 Application 因项目不存在而报错
+- name: 创建 AppProject
+  command: kubectl apply -f {{ ansible_workdir }}/argocd/bootstrap/appproject.yaml
+
+- name: 创建 root Application（prod）
+  command: kubectl apply -f {{ ansible_workdir }}/argocd/bootstrap/root-application-prod.yaml

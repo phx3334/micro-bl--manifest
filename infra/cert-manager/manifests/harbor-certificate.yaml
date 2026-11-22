@@ -1,0 +1,25 @@
+
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: harbor-tls
+  namespace: platform-system
+spec:
+  secretName: harbor-tls
+  duration: 8760h        # 1 年
+  renewBefore: 720h      # 提前 30 天自动续期
+  ipAddresses:
+    - REPLACE_WITH_SERVER_IP
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    rotationPolicy: Always
+  usages:
+    - server auth        # TLS服务端身份认证：证书可以作为服务端证书，用于HTTPS/mTLS服务侧
+    - digital signature  # 支持使用该私钥做数字签名（TLS握手等场景用到）
+    - key encipherment   # 密钥加密：可以用证书公钥加密会话密钥，RSA体系TLS握手密钥交换需要
+
+  issuerRef:
+    name: fake-tiktok-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io  # API分组，cert-manager自定义资源的API组，用来区分K8s原生资源和cert-manager扩展CRD资源

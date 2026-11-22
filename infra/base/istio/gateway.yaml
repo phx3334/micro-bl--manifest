@@ -1,0 +1,21 @@
+# 南北向入口网关：外部流量经 istio-ingressgateway 进入网格（Sidecar 模式）
+#
+# 必须放在 istio-system：Gateway 由 istiod 在配置命名空间（PILOT_CONFIG_NAMESPACE，默认 istio-system）里查找，
+# 放到业务命名空间会被直接忽略。
+#
+# base 用通配 host，具体 IP 由 overlays/prod 用 patch 覆盖，避免 base 里出现环境相关字段。
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: fake-tiktok-gateway
+  namespace: istio-system
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - "*"

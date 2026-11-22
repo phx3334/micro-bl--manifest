@@ -1,0 +1,24 @@
+# Terraform 本地状态与变量（拉起集群用）
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/*.tfvars
+
+# Ansible 临时文件
+ansible/*.retry
+ansible/**/*.retry
+# Terraform 生成的 inventory（含公网 IP，不入库）
+ansible/inventory/hosts.ini
+
+# 本地密钥与证书（证书、kubeconfig、明文凭据不入库；集群凭据由 values-{env} 提供）
+*.pem
+*.key
+kubeconfig*
+secrets/*.plain.yaml
+secrets/*.plain.yml
+
+# 本地覆盖
+**/values-*.local.yaml
+
+# IDE 配置
+.vscode/

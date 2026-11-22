@@ -1,0 +1,73 @@
+# 平台组件 bootstrap（在第一个 master 上执行）
+#
+# 顺序有依赖，不能随意调：
+#   命名空间 → local-path（给所有 PVC 提供 StorageClass）→ metrics-server（HPA）
+#   → cert-manager（内部 CA / Harbor / 中间件证书）→ sealed-secrets
+#   → Istio（Gateway CRD 必须先于 ArgoCD 同步）→ Harbor（用 cert-manager 签的 harbor-tls）
+#   → Tekton → ArgoCD（最后接管 GitOps）
+---
+- name: 校验 terraform 生成的 inventory 变量
+  assert:
+    that:
+      - apiserver_endpoint is defined
+      - apiserver_endpoint | length > 0
+      - server_public_ip is defined
+      - server_public_ip | length > 0
+    fail_msg: "缺少 apiserver_endpoint / server_public_ip：先运行 terraform apply 生成 inventory"
+
+- name: 创建远端工作目录
+  file:
+    path: "{{ ansible_workdir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: 检查 manifest 里的服务器 IP 占位符
+  include_tasks: check_placeholders.yml
+
+- name: 创建命名空间
+  include_tasks: namespaces.yml
+
+- name: 安装 local-path 动态存储
+  include_tasks: storage.yml
+  when: install_storage | bool
+
+- name: 安装 metrics-server
+  include_tasks: metrics_server.yml
+  when: install_metrics_server | bool
+
+- name: 安装 cert-manager 与内部 CA 证书链
+  include_tasks: cert_manager.yml
+  when: install_cert_manager | bool
+
+- name: 安装 sealed-secrets
+  include_tasks: sealed_secrets.yml
+  when: install_sealed_secrets | bool
+
+- name: 安装 Istio
+  include_tasks: istio.yml
+  when: install_istio | bool
+
+- name: 安装 Harbor
+  include_tasks: harbor.yml
+  when: install_harbor | bool
+
+- name: 安装 Tekton
+  include_tasks: tekton.yml
+  when: install_tekton | bool
+
+- name: 安装 ArgoCD 并交给它接管
+  include_tasks: argocd.yml
+  when: install_argocd | bool
+
+- name: Bootstrap 完成
+  debug:
+    msg:
+      - "节点数：{{ groups['masters'] | length }} master / {{ groups['workers'] | length }} worker"
+      - "Harbor：https://{{ server_public_ip }}:30003（admin / 见 cicd/harbor/values-prod.yaml）"
+      - "ArgoCD：http://{{ server_public_ip }}:30082（admin / 147258）"
+      - "Grafana：http://{{ server_public_ip }}:30300（phx / 见 grafana-admin Secret，需先手工安装 observability 栈）"
+      - "Tekton：控制器已装；业务 Pipeline/Task/Trigger 需 apply -k cicd/tekton"
+      - "prod 凭据：fake-tiktok-credentials / minio-credentials / tempo-s3 / grafana-admin / harbor-pull 需提前创建"
+      - "确认所有 REPLACE_WITH_SERVER_IP 已替换后再 push manifest 仓库，ArgoCD 才能同步成功"

@@ -1,0 +1,145 @@
+# 业务路由：替代原先的 K8s Ingress，由 istio-ingressgateway 承接
+#
+# 顺序敏感：Istio 按 http 列表声明顺序匹配，第一条命中即停止。
+# 前缀 / 必须放最后，否则 /api/v1/user 也会被 / 抢走。
+#
+# 重试策略只加在 GET 上：
+#   Envoy 的重试是"再发一次同样的请求"，POST 上传/点赞/创建不是幂等的，
+#   重试会直接产生重复视频、重复点赞计数。所以用 method 精确匹配把 GET 单独拎出来，
+#   写接口一律不配 retries。
+#
+# 超时与重试的关系：perTryTimeout × (attempts+1) 必须小于 timeout，
+#   否则外层 timeout 先到，重试根本没机会发生。这里 5s × 3 = 15s < 30s。
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: fake-tiktok
+  namespace: fake-tiktok
+spec:
+  hosts:
+    - "*"
+  gateways:
+    # 必须带命名空间：本 VS 在 fake-tiktok，Gateway 在 istio-system，
+    # 裸名只会找 fake-tiktok/fake-tiktok-gateway（不存在），入口路由会整条失效
+    - istio-system/fake-tiktok-gateway
+  http:
+    # ===================== user-svc =====================
+    # GET：验证码、用户信息、主页、关注/粉丝列表 —— 全部幂等，可安全重试
+    - name: user-get
+      match:
+        - uri:
+            prefix: /api/v1/user
+          method:
+            exact: GET
+      route:
+        - destination:
+            host: user
+            port:
+              number: 8081
+      timeout: 30s
+      retries:
+        attempts: 2
+        perTryTimeout: 5s
+        retryOn: 5xx,reset,connect-failure
+    # 写接口：登录/注册/改资料/上传头像/关注/登出，不重试
+    - name: user
+      match:
+        - uri:
+            prefix: /api/v1/user
+      route:
+        - destination:
+            host: user
+            port:
+              number: 8081
+      timeout: 30s
+
+    # ===================== video-svc =====================
+    # GET：列表、详情、转码状态轮询 —— 可重试
+    - name: video-get
+      match:
+        - uri:
+            prefix: /api/v1/video
+          method:
+            exact: GET
+      route:
+        - destination:
+            host: video
+            port:
+              number: 8082
+      timeout: 30s
+      retries:
+        attempts: 2
+        perTryTimeout: 5s
+        retryOn: 5xx,reset,connect-failure
+    # 上传：大文件，1 小时超时，绝不重试（重试=重复视频）
+    # 必须排在 video-get 之后、video 兜底之前
+    - name: video-upload
+      match:
+        - uri:
+            prefix: /api/v1/video/upload
+      route:
+        - destination:
+            host: video
+            port:
+              number: 8082
+      # 与业务侧 http.Server 的 ReadTimeout/WriteTimeout 1h 口径对齐；
+      # Istio 默认 15s 超时会把上传链路直接切断
+      timeout: 1800s
+    # 其余写接口：删除等
+    - name: video
+      match:
+        - uri:
+            prefix: /api/v1/video
+      route:
+        - destination:
+            host: video
+            port:
+              number: 8082
+      timeout: 30s
+
+    # ===================== interaction-svc =====================
+    # GET：评论列表、回复列表（公开接口，匿名可访问）
+    - name: interaction-get
+      match:
+        - uri:
+            prefix: /api/v1/interaction
+          method:
+            exact: GET
+      route:
+        - destination:
+            host: interaction
+            port:
+              number: 8083
+      timeout: 30s
+      retries:
+        attempts: 2
+        perTryTimeout: 5s
+        retryOn: 5xx,reset,connect-failure
+    # 写接口：点赞/取消/评论/删除，不重试
+    - name: interaction
+      match:
+        - uri:
+            prefix: /api/v1/interaction
+      route:
+        - destination:
+            host: interaction
+            port:
+              number: 8083
+      timeout: 30s
+
+    # ===================== web 静态资源 =====================
+    # 必须最后一条。GET 静态资源重试安全。
+    - name: web
+      match:
+        - uri:
+            prefix: /
+      route:
+        - destination:
+            host: web
+            port:
+              number: 80
+      timeout: 30s
+      retries:
+        attempts: 2
+        perTryTimeout: 5s
+        retryOn: 5xx,reset,connect-failure

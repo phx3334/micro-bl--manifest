@@ -1,0 +1,11 @@
+# prod：演示容量（镜像量小），统一凭据 phx / 147258（Harbor 管理员账号名固定 admin）
+# 注意：secretKey 必须 16 字符，换值时不要改长度
+persistence:
+  persistentVolumeClaim:
+    registry:
+      size: 5Gi
+    trivy:
+      size: 1Gi
+
+harborAdminPassword: "147258"
+secretKey: "1472581472581472"

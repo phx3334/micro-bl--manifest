@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+  # Secret grafana-admin 不在此创建：prod 凭据由 SealedSecret/外部命令注入
+
+# prod 开 NodePort 30300，方便本机浏览器访问
+patches:
+  - path: patch-service-nodeport.yaml

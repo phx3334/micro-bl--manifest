@@ -1,0 +1,78 @@
+# 一次 push 生成一个 PipelineRun
+#
+# 环境相关的三个值（registry / infra 仓库 / 写哪个 values）用模板默认值集中在这里，
+# 不散落在 TriggerBinding 里。
+# REPLACE_WITH_SERVER_IP 必须替换成与 Harbor externalURL、apps values.images.registry
+# 完全一致的地址，否则镜像推到 A 地址、部署从 B 地址拉。
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: build-app
+  namespace: platform-system
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+spec:
+  params:
+    - name: repo-url
+    - name: revision
+    - name: branch
+    - name: image-registry
+      default: "REPLACE_WITH_SERVER_IP:30003/fake-tiktok"
+    - name: infra-repo-url
+      default: "https://github.com/phx3334/micro-bl--manifest.git"
+    - name: infra-values-file
+      default: "apps/fake-tiktok/values-prod.yaml"
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: build-app-
+        labels:
+          app.kubernetes.io/part-of: fake-tiktok
+          triggertemplate: build-app
+      spec:
+        pipelineRef:
+          name: build-app
+        # Tekton v1 用 taskRunTemplate 指定 Pod 身份（旧版才是 spec.serviceAccountName）
+        taskRunTemplate:
+          serviceAccountName: tekton-build
+          podTemplate:
+            securityContext:
+              # BuildKit 以 UID 1000 运行：source/image workspace 需要 group 可写，
+              # 否则写 image.tar 会 Permission denied。只改卷的属组，不动文件属主。
+              fsGroup: 1000
+              fsGroupChangePolicy: OnRootMismatch
+        # 5 个镜像串行 + Trivy 首次拉库，1 小时默认值不够
+        timeouts:
+          pipeline: "2h"
+          tasks: "30m"
+        params:
+          - name: repo-url
+            value: $(tt.params.repo-url)
+          - name: revision
+            value: $(tt.params.revision)
+          # tag 直接用 commit SHA：不可变，回滚精确到某次提交
+          - name: tag
+            value: $(tt.params.revision)
+          - name: image-registry
+            value: $(tt.params.image-registry)
+          - name: infra-repo-url
+            value: $(tt.params.infra-repo-url)
+          - name: infra-branch
+            value: main
+          - name: infra-values-file
+            value: $(tt.params.infra-values-file)
+        workspaces:
+          # 跨 Task 共享源码：PVC；2Gi 够放 5 个 tar 之外的所有中间文件
+          - name: source
+            volumeClaimTemplate:
+              spec:
+                accessModes: ["ReadWriteOnce"]
+                resources:
+                  requests:
+                    storage: 2Gi
+          # 只在本 Task 的多个 step 间共享，emptyDir 即可
+          - name: image
+            emptyDir: {}
+          - name: gitops
+            emptyDir: {}

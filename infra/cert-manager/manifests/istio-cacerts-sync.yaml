@@ -1,0 +1,122 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: istio-cacerts-sync
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+---
+# 权限只覆盖「读源 Secret、写 cacerts、重启 istiod」三件事，且锁在 istio-system 内
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: istio-cacerts-sync
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+rules:
+  # 读：只允许读这两个 Secret（源 istio-ca + 目标 cacerts，用于判断是否变化）
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["istio-ca", "cacerts"]
+    verbs: ["get"]
+  # 写：patch 只能改 cacerts；create 无法按名字限制，这是 K8s RBAC 的边界
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["cacerts"]
+    verbs: ["patch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: ["istiod"]
+    # get 判断 istiod 是否已安装；patch 用于 rollout restart（改 pod template 注解）
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: istio-cacerts-sync
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: istio-cacerts-sync
+subjects:
+  - kind: ServiceAccount
+    name: istio-cacerts-sync
+    namespace: istio-system
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: istio-cacerts-sync
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+spec:
+  schedule: "*/30 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 60
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          serviceAccountName: istio-cacerts-sync
+          restartPolicy: OnFailure
+          containers:
+            - name: sync
+              # 任一自带 kubectl 与 sh 的镜像都可以；tag 与集群 K8s 版本对齐
+              image: alpine/k8s:1.32.4
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  ns=istio-system
+                  work=/tmp/cacerts
+                  rm -rf "$work" && mkdir -p "$work"
+
+                  # 源头 Certificate 还没 Ready（cert-manager 异步 reconcile）就跳过，等下一轮
+                  if ! kubectl -n "$ns" get secret istio-ca >/dev/null 2>&1; then
+                    echo "istio-ca 尚未生成，跳过本轮"
+                    exit 0
+                  fi
+
+                  kubectl -n "$ns" get secret istio-ca -o jsonpath='{.data.tls\.crt}' | base64 -d > "$work/ca-cert.pem"
+                  kubectl -n "$ns" get secret istio-ca -o jsonpath='{.data.tls\.key}' | base64 -d > "$work/ca-key.pem"
+                  kubectl -n "$ns" get secret istio-ca -o jsonpath='{.data.ca\.crt}'  | base64 -d > "$work/root-cert.pem"
+                  # 只有一级中间 CA，chain 就是中间 CA 自身；若将来加二级，这里要拼成 中间→根 的链
+                  cp "$work/ca-cert.pem" "$work/cert-chain.pem"
+
+                  # 四个文件同源，用 ca-cert.pem 的指纹判断整套是否变化
+                  new_sum=$(sha256sum "$work/ca-cert.pem" | awk '{print $1}')
+                  old_sum=$(kubectl -n "$ns" get secret cacerts -o jsonpath='{.data.ca-cert\.pem}' 2>/dev/null \
+                    | base64 -d 2>/dev/null | sha256sum | awk '{print $1}')
+
+                  kubectl -n "$ns" create secret generic cacerts \
+                    --from-file=ca-cert.pem="$work/ca-cert.pem" \
+                    --from-file=ca-key.pem="$work/ca-key.pem" \
+                    --from-file=root-cert.pem="$work/root-cert.pem" \
+                    --from-file=cert-chain.pem="$work/cert-chain.pem" \
+                    --dry-run=client -o yaml | kubectl apply -f -
+
+                  # 首次安装 istiod 之前不需要重启；只有 CA 真的换了（续期/轮换）才滚动一次
+                  if [ "$new_sum" != "$old_sum" ]; then
+                    if kubectl -n "$ns" get deployment istiod >/dev/null 2>&1; then
+                      echo "中间 CA 已变化，重启 istiod 重新加载"
+                      kubectl -n "$ns" rollout restart deployment/istiod
+                    fi
+                  fi
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  cpu: 100m
+                  memory: 128Mi

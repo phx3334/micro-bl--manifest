@@ -1,0 +1,19 @@
+fake-tiktok 已部署到命名空间 {{ include "fake-tiktok.namespace" . }}。
+
+业务组件：
+  user / video / interaction  HTTP + gRPC 双端口 Service
+  worker                       Kafka 消费 + ffmpeg 转码
+  web                          Vue3 静态资源 + nginx
+
+入口：
+  Istio 侧经 istio-ingressgateway 暴露（Gateway + VirtualService）
+  本地调试：kubectl -n {{ include "fake-tiktok.namespace" . }} port-forward svc/web 8080:80
+
+检查：
+  kubectl -n {{ include "fake-tiktok.namespace" . }} get pods
+  kubectl -n {{ include "fake-tiktok.namespace" . }} get svc
+
+注意：
+  - 业务镜像需先由 micro-bilibili 仓库构建并推送到 {{ .Values.images.registry }}
+  - 三库、Redis、Kafka、MinIO 由 manifest 仓库的 middleware 层提供
+  - APP_MINIO_ENDPOINT 必须同时保证 Pod 与浏览器可达

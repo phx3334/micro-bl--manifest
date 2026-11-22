@@ -1,0 +1,26 @@
+# Tekton Pipelines + Triggers：官方只有 release 清单，没有 Helm chart。
+# 必须 server-side apply（CRD 体积大，client-side 的 last-applied 注解会超限）。
+---
+- name: 创建 Tekton 清单目录
+  file:
+    path: "{{ ansible_workdir }}/tekton"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: 复制 Tekton 平台清单
+  copy:
+    src: "{{ infra_repo }}/cicd/tekton-platform"
+    dest: "{{ ansible_workdir }}/tekton/"
+
+- name: 安装 Tekton Pipelines / Triggers
+  command: kubectl apply --server-side -k {{ ansible_workdir }}/tekton/tekton-platform
+
+- name: 等待 Tekton Pipelines controller
+  command: kubectl -n tekton-pipelines rollout status deployment/tekton-pipelines-controller --timeout=600s
+  changed_when: false
+
+- name: 等待 Tekton Triggers controller
+  command: kubectl -n tekton-pipelines rollout status deployment/tekton-triggers-controller --timeout=600s
+  changed_when: false

@@ -1,0 +1,61 @@
+# 本地限流：Envoy 内置的 token bucket，不依赖任何外部服务
+#
+# 为什么不用全局限流：Istio 没有原生限流 CRD。全局精确限流要额外部署
+# envoyproxy/ratelimit 服务 + Redis，多一个组件和故障域；本项目的量级用
+# 每 Pod 令牌桶足够，代价是「总限额 = 网关副本数 × 单 Pod 限额」——
+# 扩容网关会等比放大总限额，这是个已知的、可接受的偏差。
+#
+# 作用范围：istio-ingressgateway 的整条 HTTP 连接管理器（所有路由共用）。
+# 需要按接口单独限流时，把 filter 的 typed_per_filter_config 挂到对应路由上，
+# 而不是在这里调全局 token bucket（否则会误伤静态资源）。
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: ingress-local-ratelimit
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+spec:
+  workloadSelector:
+    labels:
+      istio: ingressgateway
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        context: GATEWAY
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.filters.http.local_ratelimit
+          typed_config:
+            "@type": type.googleapis.com/udpa.type.v1.TypedStruct
+            type_url: type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+            value:
+              stat_prefix: http_local_rate_limiter
+              token_bucket:
+                # 每秒回填 200 个令牌，桶容量 200：允许 1 秒内 200 个请求的瞬时突发。
+                # demo 量级足够；压测时如果发现正常流量被限，先看
+                # envoy_http_local_rate_limiter_* 指标再调。
+                max_tokens: 200
+                tokens_per_fill: 200
+                fill_interval: 1s
+              filter_enabled:
+                runtime_key: local_rate_limit_enabled
+                default_value:
+                  numerator: 100
+                  denominator: HUNDRED
+              filter_enforced:
+                runtime_key: local_rate_limit_enforced
+                default_value:
+                  numerator: 100
+                  denominator: HUNDRED
+              # 被限流的响应会带这个头，排障时一眼能区分「限流 429」和「业务 429」
+              response_headers_to_add:
+                - append_action: OVERWRITE_IF_EXISTS_OR_ADD
+                  header:
+                    key: x-local-rate-limit
+                    value: "true"

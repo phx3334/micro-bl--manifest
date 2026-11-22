@@ -1,0 +1,15 @@
+# prod：3 master + 3 worker，agent 资源放大——策略与连接数上量后 agent 内存随之增长，
+# requests 不足会被挤压导致驱逐，宁可预留；operator limits 同步放大
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+
+operator:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi

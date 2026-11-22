@@ -1,0 +1,26 @@
+
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: istio-ca
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+spec:
+  isCA: true
+  commonName: istio-intermediate-ca
+  secretName: istio-ca
+  duration: 8760h        # 1 年
+  renewBefore: 720h      # 提前 30 天续，与 harbor-tls 同节奏
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - cert sign
+    - crl sign
+    - digital signature
+  issuerRef:
+    name: fake-tiktok-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io

@@ -1,0 +1,3 @@
+# 控制节点：etcd 与 kubelet 数据都放系统盘（40G ESSD），不使用数据盘
+containerd_root: /var/lib/containerd
+kubelet_root_dir: /var/lib/kubelet

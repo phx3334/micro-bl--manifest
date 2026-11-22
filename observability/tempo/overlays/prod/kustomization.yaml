@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+  # Secret tempo-s3 不在此创建：prod 凭据由 SealedSecret 注入
+  # （契约与生成流程见 infra/credentials/README.md）
+
+patches:
+  - path: patch-tempo.yaml

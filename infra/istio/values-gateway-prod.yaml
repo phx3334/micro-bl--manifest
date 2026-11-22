@@ -1,0 +1,22 @@
+# prod 只调整调度与资源；副本走 chart 默认 HPA（min1/max5），
+# 故不设 replicaCount（HPA 开启时它是死配置）。
+
+# 反亲和：网关扩到 ≥2 副本时（HPA 触发）不要落在同一节点，入口别被单机故障带走。
+# min=1 时无效果也不影响；preferred 不会阻止调度。
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              istio: ingressgateway
+          topologyKey: kubernetes.io/hostname
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi

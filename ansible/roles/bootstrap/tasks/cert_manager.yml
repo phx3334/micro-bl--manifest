@@ -1,0 +1,100 @@
+# cert-manager + 全集群证书链：
+#   fake-tiktok-ca（根）→ harbor-tls / istio-ca / mysql-tls / redis-tls / kafka-tls / minio-tls
+---
+- name: 添加 cert-manager Helm 仓库
+  command: helm repo add --force-update jetstack {{ helm_repos.jetstack }}
+  changed_when: false
+
+- name: 更新 cert-manager 仓库索引
+  command: helm repo update jetstack
+  changed_when: false
+
+- name: 复制 cert-manager values
+  copy:
+    src: "{{ infra_repo }}/infra/cert-manager/{{ item }}"
+    dest: "{{ ansible_workdir }}/{{ item }}"
+    mode: "0644"
+  loop:
+    - values.yaml
+    - values-prod.yaml
+
+- name: 安装 cert-manager（含 CRD）
+  command:
+    - helm
+    - upgrade
+    - --install
+    - cert-manager
+    - jetstack/cert-manager
+    - --namespace
+    - cert-manager
+    - --create-namespace
+    - --version
+    - "{{ chart_versions.cert_manager }}"
+    - --values
+    - "{{ ansible_workdir }}/values.yaml"
+    - --values
+    - "{{ ansible_workdir }}/values-prod.yaml"
+    - --wait
+    - --timeout
+    - 10m
+
+- name: 等待 cert-manager webhook 就绪
+  command: kubectl -n cert-manager rollout status deployment/cert-manager-webhook --timeout=300s
+  changed_when: false
+
+- name: 创建 cert-manager 清单目录
+  file:
+    path: "{{ ansible_workdir }}/cert-manager"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: 复制 cert-manager 自定义资源
+  copy:
+    src: "{{ infra_repo }}/infra/cert-manager/manifests"
+    dest: "{{ ansible_workdir }}/cert-manager/"
+
+- name: 应用根 CA / 业务证书 / 中间件证书
+  command: kubectl apply -k {{ ansible_workdir }}/cert-manager/manifests
+  register: cert_apply
+  changed_when: "'created' in cert_apply.stdout or 'configured' in cert_apply.stdout"
+
+- name: 等待根 CA 就绪
+  command: kubectl -n cert-manager wait --for=condition=Ready certificate/fake-tiktok-ca --timeout=180s
+  changed_when: false
+
+- name: 等待 Istio 中间 CA 就绪
+  command: kubectl -n istio-system wait --for=condition=Ready certificate/istio-ca --timeout=180s
+  changed_when: false
+
+- name: 等待 Harbor 证书就绪
+  command: kubectl -n platform-system wait --for=condition=Ready certificate/harbor-tls --timeout=180s
+  changed_when: false
+
+# 分发器是每 30 分钟的 CronJob，首次部署手动触发一次，业务 Pod 才能挂到 internal-ca
+- name: 清理上一次的分发 Job
+  command: kubectl -n cert-manager delete job internal-ca-distribute-once --ignore-not-found
+  changed_when: false
+
+- name: 触发一次根 CA 分发
+  command: kubectl -n cert-manager create job --from=cronjob/internal-ca-distributor internal-ca-distribute-once
+  changed_when: true
+
+- name: 等待分发完成
+  command: kubectl -n cert-manager wait --for=condition=complete job/internal-ca-distribute-once --timeout=180s
+  changed_when: false
+
+# istiod 首启前必须已有 cacerts，否则会自签一套根 CA，和 Harbor/中间件形成两套信任锚。
+# CronJob 是每 30 分钟一轮，这里手动触发一次，保证安装 Istio 前装配完成。
+- name: 清理上一次的 istio cacerts 装配 Job
+  command: kubectl -n istio-system delete job istio-cacerts-sync-once --ignore-not-found
+  changed_when: false
+
+- name: 触发一次 istio 中间 CA 装配
+  command: kubectl -n istio-system create job --from=cronjob/istio-cacerts-sync istio-cacerts-sync-once
+  changed_when: true
+
+- name: 等待 istio cacerts 装配完成
+  command: kubectl -n istio-system wait --for=condition=complete job/istio-cacerts-sync-once --timeout=180s
+  changed_when: false

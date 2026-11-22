@@ -1,0 +1,127 @@
+# Tempo 单机部署：Deployment + Service + WAL 用的 PVC
+#
+# 数据本身在 MinIO，本地只留 WAL（写入缓冲），所以盘不需要很大；
+# 但仍用 Recreate：单副本 + RWO，滚动更新会让新旧 Pod 抢同一块盘。
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tempo-wal
+  labels:
+    app.kubernetes.io/name: tempo
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tempo
+  labels:
+    app.kubernetes.io/name: tempo
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tempo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tempo
+    spec:
+      # 只做 S3 读写与 OTLP 接收，不访问 K8s API → 不挂载 SA token
+      automountServiceAccountToken: false
+      containers:
+        - name: tempo
+          image: grafana/tempo:2.6.1
+          args:
+            - -config.file=/conf/tempo.yaml
+            # 允许配置文件里用 ${VAR} 引用环境变量（桶名、保留期、S3 凭据）
+            - -config.expand-env=true
+          env:
+            - name: TEMPO_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tempo-s3
+                  key: accessKey
+            - name: TEMPO_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tempo-s3
+                  key: secretKey
+            # MinIO 走 https：让 Go 的默认证书池信任内部根 CA。
+            # SSL_CERT_FILE 是 crypto/x509 的标准环境变量，Tempo 的 S3 客户端会读到。
+            - name: SSL_CERT_FILE
+              value: /certs/internal-ca.crt
+          ports:
+            - name: http
+              containerPort: 3200
+            - name: otlp-grpc
+              containerPort: 4317
+            - name: otlp-http
+              containerPort: 4318
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+              readOnly: true
+            - name: wal
+              mountPath: /var/tempo
+            # 内部根 CA（ConfigMap internal-ca，由 cert-manager 那层的分发 CronJob 生成）
+            - name: internal-ca
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: tempo-config
+        - name: wal
+          persistentVolumeClaim:
+            claimName: tempo-wal
+        - name: internal-ca
+          configMap:
+            name: internal-ca
+            items:
+              - key: ca.crt
+                path: internal-ca.crt
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo
+  labels:
+    app.kubernetes.io/name: tempo
+spec:
+  selector:
+    app.kubernetes.io/name: tempo
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: otlp-grpc
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http
+    - name: http
+      port: 3200
+      targetPort: http

@@ -1,0 +1,24 @@
+# Tekton 平台组件安装清单（Pipelines + Triggers）
+#
+# 为什么不是 Helm：Tekton 官方不提供 Helm chart（只有 Operator 的 release 清单）。
+# 按项目铁律"有上游 Chart 的用 Helm、没有的用 kustomize"，这里直接引用官方
+# release 资产，不引入第三方 chart 包装层。
+#
+# 版本（2026-11 核对）：
+#   Pipelines v1.18.0（LTS，2026-10-26 发布）
+#   Triggers  v0.38.0（2026-11-09 发布）
+#
+# 安装（必须 server-side：CRD 体积大，client-side apply 的 last-applied 注解会超限）：
+#   kubectl apply --server-side -k cicd/tekton-platform
+# 等 webhook 证书 Job 与两个 controller Ready 后再装业务侧流水线：
+#   kubectl -n tekton-pipelines rollout status deploy/tekton-pipelines-controller
+#   kubectl -n tekton-pipelines rollout status deploy/tekton-triggers-controller
+#
+# 升级注意：Pipelines 与 Triggers 的版本必须落在同一兼容矩阵里，
+# 升级前查一次官方 compatibility 表，不要单独跳大版本。
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - https://github.com/tektoncd/pipeline/releases/download/v1.18.0/release.yaml
+  - https://github.com/tektoncd/triggers/releases/download/v0.38.0/release.yaml

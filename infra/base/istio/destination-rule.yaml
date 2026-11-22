@@ -1,0 +1,109 @@
+# DestinationRule：熔断（异常点驱逐）+ 连接池上限
+#
+# 只对 HTTP 层生效，且 Envoy 只看 HTTP 状态码——本项目业务失败返回 200+业务码，
+# 所以这里驱逐的是「系统错误（5xx/panic/依赖故障）」，业务错误不会被误判为实例故障。
+# 这与 apperr 的分类设计天然对齐，不需要额外适配。
+#
+# 四个服务配置一致，先做成一份多文档；后续如果要按服务差异化（比如 video 是大流量），
+# 再拆开单独调参。
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: user
+  namespace: fake-tiktok
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+spec:
+  host: user
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        # 到单个 Pod 的最大 TCP 连接数（HTTP/1.1 下≈并发连接数）
+        maxConnections: 100
+      http:
+        # 等待可用连接的最大请求数；超过直接 503。
+        # 设太小会让正常突发被误杀，设太大则失去保护意义。
+        # 2 副本 × 100 并发 → 200 是保守起点，压测后按实际调。
+        http1MaxPendingRequests: 200
+        http2MaxRequests: 200
+        # 0 = 不限每连接请求数（长连接复用），HTTP/2 场景下避免连接过早重建
+        maxRequestsPerConnection: 0
+    outlierDetection:
+      # 连续 5 次 5xx 判定实例不健康 → 从负载均衡池摘除
+      consecutive5xxErrors: 5
+      # 每 30s 统计一次
+      interval: 30s
+      # 摘除 30s 后放回（指数退避：重复失败会成倍延长）
+      baseEjectionTime: 30s
+      # 一次最多摘除 50% 的实例：留一半兜底，避免全摘导致请求无处可去
+      maxEjectionPercent: 50
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: video
+  namespace: fake-tiktok
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+spec:
+  host: video
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        # 上传是大文件长连接，给高一些
+        maxConnections: 200
+      http:
+        http1MaxPendingRequests: 200
+        http2MaxRequests: 200
+        maxRequestsPerConnection: 0
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: interaction
+  namespace: fake-tiktok
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+spec:
+  host: interaction
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 100
+      http:
+        http1MaxPendingRequests: 200
+        http2MaxRequests: 200
+        maxRequestsPerConnection: 0
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: web
+  namespace: fake-tiktok
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+spec:
+  host: web
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 100
+      http:
+        http1MaxPendingRequests: 200
+        http2MaxRequests: 200
+    outlierDetection:
+      # 静态资源服务：nginx 只在自身异常时 5xx，阈值给宽一点
+      consecutive5xxErrors: 10
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50

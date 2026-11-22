@@ -1,0 +1,8 @@
+# 引导用 Issuer：自己给自己签，只用来签发一次内部 CA
+# 真正的服务证书都由下面的 CA Issuer 签发，不要直接用它签业务证书
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-bootstrap
+spec:
+  selfSigned: {}

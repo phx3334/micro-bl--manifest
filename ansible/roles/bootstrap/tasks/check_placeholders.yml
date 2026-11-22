@@ -1,0 +1,38 @@
+# 这些文件会被 ArgoCD / cert-manager 直接消费，占位符留着会在集群里静默出错：
+#   · Harbor 证书 IP SAN 非法 → Certificate 永远不 Ready
+#   · Gateway host / 业务 MinIO endpoint 仍是 REPLACE_WITH_SERVER_IP → 路由与上传全 404
+---
+- name: 创建检查目录
+  file:
+    path: "{{ ansible_workdir }}/check"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: 复制需要检查的 manifest 到远端
+  copy:
+    src: "{{ infra_repo }}/{{ item }}"
+    dest: "{{ ansible_workdir }}/check/"
+  loop:
+    - apps/fake-tiktok/values.yaml
+    - apps/fake-tiktok/values-prod.yaml
+    - infra/cert-manager/manifests
+    - infra/overlays/prod
+    - cicd/tekton/triggers/trigger-template.yaml
+
+- name: 查找未替换的 REPLACE_WITH_SERVER_IP
+  shell: |
+    grep -rn "REPLACE_WITH_SERVER_IP" {{ ansible_workdir }}/check \
+      | grep -vE ':[0-9]+:[[:space:]]*#' || true
+  register: placeholder_hits
+  changed_when: false
+
+- name: 占位符必须全部替换
+  assert:
+    that:
+      - placeholder_hits.stdout == ""
+    fail_msg: |
+      以下位置仍含未替换的 REPLACE_WITH_SERVER_IP，请统一替换成第一台 master 的公网 IP
+      （Harbor / MinIO 证书的 IP SAN 只签这一台；取 terraform output master_public_ips[0]）：
+      {{ placeholder_hits.stdout }}

@@ -1,0 +1,13 @@
+# 命名空间由清单仓库统一声明（labels 决定是否注入 sidecar），
+# 先于 cert-manager/harbor 创建，ArgoCD 后续 apply 同一份文件是幂等的。
+---
+- name: 复制命名空间清单
+  copy:
+    src: "{{ infra_repo }}/infra/base/namespaces.yaml"
+    dest: "{{ ansible_workdir }}/namespaces.yaml"
+    mode: "0644"
+
+- name: 创建命名空间
+  command: kubectl apply -f {{ ansible_workdir }}/namespaces.yaml
+  register: ns_apply
+  changed_when: "'created' in ns_apply.stdout"

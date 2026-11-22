@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-infra
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: fake-tiktok
+  source:
+    repoURL: https://github.com/phx3334/micro-bl--manifest.git
+    targetRevision: main
+    path: infra/overlays/prod
+  destination:
+    server: https://kubernetes.default.svc
+    # 这里只是"未显式写 namespace 的资源"的兜底；本 app 的资源各自带 namespace
+    namespace: istio-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ApplyOutOfSyncOnly=true

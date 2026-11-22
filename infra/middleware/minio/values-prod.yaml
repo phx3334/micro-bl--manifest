@@ -1,0 +1,32 @@
+# prod：凭据不随仓库分发，引用外部 Secret（键：rootUser / rootPassword），
+# 由 infra/credentials/README.md 的流程创建（推荐 SealedSecret）。
+auth:
+  existingSecret: minio-credentials
+
+# MinIO 是"给人看的"媒体源站，不属于纯内部组件：后端签名的视频/封面/头像直链
+# 由浏览器直接消费，API 必须浏览器可达 → prod 同样开 NodePort。
+# Tempo 等集群内组件仍走 ClusterIP（minio.middleware:9000）。
+service:
+  type: NodePort
+  nodePorts:
+    api: "30900"
+
+# 注意：新版 bitnami/minio 已移除内置 Console（无 consoleService 键），
+# 需要管理界面时用 `mc` 客户端或独立部署 Object Browser；旧版 chart 可补 30901。
+
+# 媒体桶 + Tempo 的 prod 桶（overlays/prod 的 TEMPO_S3_BUCKET=tempo-prod）
+defaultBuckets: fake-tiktok,tempo-prod
+
+persistence:
+  size: 15Gi
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: "2"
+    memory: 4Gi
+
+# 生产建议（README）：媒体桶与 Velero 备份桶分离、独立凭据；
+# 浏览器访问用对外域名（app values 的 config.minio.endpoint），Pod 内仍走 minio:9000。

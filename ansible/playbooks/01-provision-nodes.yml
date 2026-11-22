@@ -1,0 +1,13 @@
+# 所有节点：基础系统配置 + containerd + kubelet/kubeadm/kubectl
+# 用法：ansible-playbook playbooks/01-provision-nodes.yml
+---
+- name: 节点初始化
+  hosts: all
+  become: true
+  any_errors_fatal: true
+  vars:
+    infra_repo: "{{ playbook_dir | dirname }}"
+  roles:
+    - common
+    - containerd
+    - kubernetes

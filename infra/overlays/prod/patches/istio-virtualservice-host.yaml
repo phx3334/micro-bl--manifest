@@ -1,0 +1,9 @@
+# 与 Gateway 的 hosts 保持一致（同一个公网 IP），否则 VirtualService 绑不到 Gateway。
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: fake-tiktok
+  namespace: fake-tiktok
+spec:
+  hosts:
+    - REPLACE_WITH_SERVER_IP

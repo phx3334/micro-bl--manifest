@@ -1,0 +1,195 @@
+
+# 为什么 5 个镜像串行而不是并行（runAfter 链）：
+#   source workspace 是 RWO PVC，多个 TaskRun 并行时会调度到不同节点，
+#   同一块 RWO 卷无法同时挂载，表现为部分 Pod 一直 ContainerCreating。
+#   串行的代价是总时长变长，换来的是任何节点拓扑下都稳定。
+#
+# 镜像命名与 apps chart 的 _helpers.tpl 保持一致：
+#   <registry>/fake_tiktok-<component>:<tag>
+# 改这里必须同步改 templates/_helpers.tpl，否则部署时 ImagePullBackOff。
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: build-app
+  namespace: platform-system
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+spec:
+  params:
+    - name: repo-url
+      type: string
+    - name: revision
+      type: string
+    - name: image-registry
+      type: string
+      description: 如 REPLACE_WITH_SERVER_IP:30003/fake-tiktok
+    - name: tag
+      type: string
+      description: 不可变 tag，直接用 commit SHA
+    - name: infra-repo-url
+      type: string
+    - name: infra-branch
+      type: string
+      default: main
+    - name: infra-values-file
+      type: string
+      default: apps/fake-tiktok/values-prod.yaml
+  workspaces:
+    - name: source
+    - name: image
+    - name: gitops
+  tasks:
+    - name: clone
+      taskRef:
+        name: git-clone
+      workspaces:
+        # 官方 git-clone 的 workspace 名是 output，接本 Pipeline 的 source 口子
+        - name: output
+          workspace: source
+      params:
+        - name: url
+          value: $(params.repo-url)
+        - name: revision
+          value: $(params.revision)
+
+    - name: backend-ci
+      runAfter: [clone]
+      taskRef:
+        name: backend-ci
+      workspaces:
+        - name: source
+          workspace: source
+
+    - name: frontend-ci
+      runAfter: [backend-ci]
+      taskRef:
+        name: frontend-ci
+      workspaces:
+        - name: source
+          workspace: source
+
+    - name: build-user
+      runAfter: [frontend-ci]
+      taskRef:
+        name: build-scan-push
+      workspaces:
+        - name: source
+          workspace: source
+        - name: image
+          workspace: image
+      params:
+        - name: image
+          value: $(params.image-registry)/fake_tiktok-user:$(params.tag)
+        - name: context
+          value: server
+        - name: dockerfile
+          value: server/Dockerfile
+        - name: target
+          value: user
+        # 4 个 Go 镜像共用一个缓存 ref：builder 阶段的 go mod download 层
+        # 只会在第一个镜像构建时真正执行，后面三个直接命中缓存
+        - name: cache-ref
+          value: $(params.image-registry)/buildcache-go:main
+
+    - name: build-video
+      runAfter: [build-user]
+      taskRef:
+        name: build-scan-push
+      workspaces:
+        - name: source
+          workspace: source
+        - name: image
+          workspace: image
+      params:
+        - name: image
+          value: $(params.image-registry)/fake_tiktok-video:$(params.tag)
+        - name: context
+          value: server
+        - name: dockerfile
+          value: server/Dockerfile
+        - name: target
+          value: video
+        - name: cache-ref
+          value: $(params.image-registry)/buildcache-go:main
+
+    - name: build-interaction
+      runAfter: [build-video]
+      taskRef:
+        name: build-scan-push
+      workspaces:
+        - name: source
+          workspace: source
+        - name: image
+          workspace: image
+      params:
+        - name: image
+          value: $(params.image-registry)/fake_tiktok-interaction:$(params.tag)
+        - name: context
+          value: server
+        - name: dockerfile
+          value: server/Dockerfile
+        - name: target
+          value: interaction
+        - name: cache-ref
+          value: $(params.image-registry)/buildcache-go:main
+
+    - name: build-worker
+      runAfter: [build-interaction]
+      taskRef:
+        name: build-scan-push
+      workspaces:
+        - name: source
+          workspace: source
+        - name: image
+          workspace: image
+      params:
+        - name: image
+          value: $(params.image-registry)/fake_tiktok-worker:$(params.tag)
+        - name: context
+          value: server
+        - name: dockerfile
+          value: server/Dockerfile
+        - name: target
+          value: worker
+        - name: cache-ref
+          value: $(params.image-registry)/buildcache-go:main
+
+    - name: build-web
+      runAfter: [build-worker]
+      taskRef:
+        name: build-scan-push
+      workspaces:
+        - name: source
+          workspace: source
+        - name: image
+          workspace: image
+      params:
+        - name: image
+          value: $(params.image-registry)/fake_tiktok-web:$(params.tag)
+        - name: context
+          value: web
+        - name: dockerfile
+          value: web/Dockerfile
+        # web/Dockerfile 没有命名 stage，target 必须留空
+        - name: target
+          value: ""
+        # 前端单独一个缓存 ref：npm 依赖层与 Go 的缓存互不相干
+        - name: cache-ref
+          value: $(params.image-registry)/buildcache-web:main
+
+    - name: update-gitops
+      runAfter: [build-web]
+      taskRef:
+        name: update-gitops
+      workspaces:
+        - name: gitops
+          workspace: gitops
+      params:
+        - name: infra-repo-url
+          value: $(params.infra-repo-url)
+        - name: infra-branch
+          value: $(params.infra-branch)
+        - name: values-file
+          value: $(params.infra-values-file)
+        - name: tag
+          value: $(params.tag)

@@ -1,0 +1,68 @@
+# 全集群变量（inventory 目录下的 group_vars 会被自动加载）
+#
+# apiserver_endpoint 不在这里定义：由 terraform 写入 inventory 的 [all:vars]，
+# 指向私网 CLB（<CLB IP>:6443），kubeadm 的 controlPlaneEndpoint 直接用它。
+
+cluster_name: fake-tiktok
+apiserver_port: 6443
+pod_subnet: "10.244.0.0/16"
+service_subnet: "10.96.0.0/12"
+
+# ── 版本（2026-11 已核对镜像源里确实存在）────────────────────
+kubernetes_minor: "1.32"
+kube_package_version: "1.32.13-1.1"
+containerd_version: "1.7.29-1~ubuntu.22.04~jammy"
+helm_version: "3.16.4"
+
+# ── 国内镜像源 ──────────────────────────────────────────────
+k8s_apt_repo_url: "https://mirrors.aliyun.com/kubernetes-new/core/stable/v{{ kubernetes_minor }}/deb/"
+docker_apt_repo_url: "https://mirrors.aliyun.com/docker-ce/linux/ubuntu"
+helm_download_url: "https://get.helm.sh/helm-v{{ helm_version }}-linux-amd64.tar.gz"
+
+# kubeadm / kubelet / coredns / etcd / pause 全部走这个仓库，绕开 registry.k8s.io
+kubeadm_image_repository: "registry.aliyuncs.com/google_containers"
+sandbox_image: "registry.aliyuncs.com/google_containers/pause:3.10"
+
+# ── 运行时目录（workers 覆盖到数据盘，见 group_vars/workers.yml）──
+containerd_root: /var/lib/containerd
+kubelet_root_dir: /var/lib/kubelet
+containerd_state: /run/containerd
+
+# local-path 动态存储的落盘目录（workers 上 /data 是 80G ESSD 数据盘）
+local_path_root: /data/local-path
+local_path_provisioner_image: "rancher/local-path-provisioner:v0.0.32"
+local_path_helper_image: "busybox:1.36"
+
+# 远端工作目录：放渲染后的 kubeadm 配置、values 副本、待 apply 的 manifest
+ansible_workdir: /root/.fake-tiktok
+
+# ── Helm chart 版本（均为仓库里已钉住/文档引用的版本）────────
+chart_versions:
+  cilium: "1.18.5"
+  metrics_server: "3.14.0"
+  cert_manager: "v1.21.3"
+  sealed_secrets: "2.22.0"
+  istio: "1.30.6"
+  harbor: "1.19.4"
+  argo_cd: "10.18.0"
+
+# ── Helm 仓库地址（国内网络不通时可换成镜像）─────────────────
+helm_repos:
+  cilium: https://helm.cilium.io/
+  metrics_server: https://kubernetes-sigs.github.io/metrics-server/
+  jetstack: https://charts.jetstack.io
+  sealed_secrets: https://bitnami.github.io/sealed-secrets
+  istio: https://istio-release.storage.googleapis.com/charts
+  harbor: https://helm.goharbor.io
+  argo: https://argoproj.github.io/argo-helm
+
+# ── 组件开关（按需关掉重组件，例如只想先验证控制面）────────
+install_cilium: true
+install_storage: true
+install_metrics_server: true
+install_cert_manager: true
+install_sealed_secrets: true
+install_istio: true
+install_harbor: true
+install_tekton: true
+install_argocd: true

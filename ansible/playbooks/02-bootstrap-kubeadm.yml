@@ -1,0 +1,39 @@
+# 控制面初始化 + 工作节点加入 + CNI
+# 用法：ansible-playbook playbooks/02-bootstrap-kubeadm.yml
+---
+- name: 控制面（kubeadm init / join + Cilium）
+  hosts: masters
+  become: true
+  any_errors_fatal: true
+  vars:
+    infra_repo: "{{ playbook_dir | dirname }}"
+  roles:
+    - kubeadm_master
+
+- name: 工作节点加入
+  hosts: workers
+  become: true
+  any_errors_fatal: true
+  roles:
+    - kubeadm_worker
+
+- name: 等待全部节点 Ready
+  hosts: masters
+  become: true
+  any_errors_fatal: true
+  tasks:
+    - name: 等待节点 Ready（Cilium 就绪后才会变 Ready）
+      command: kubectl wait --for=condition=Ready nodes --all --timeout=900s
+      when: inventory_hostname == groups['masters'][0]
+      changed_when: false
+
+    - name: 输出节点列表
+      command: kubectl get nodes -o wide
+      when: inventory_hostname == groups['masters'][0]
+      register: nodes_out
+      changed_when: false
+
+    - name: 集群状态
+      debug:
+        msg: "{{ nodes_out.stdout_lines }}"
+      when: inventory_hostname == groups['masters'][0]

@@ -1,0 +1,54 @@
+# Harbor：镜像仓库 + 内部 CA 信任链的第一个真实消费者
+# externalURL 必须与 apps images.registry / Tekton 的 docker-server 完全一致
+---
+- name: 添加 Harbor Helm 仓库
+  command: helm repo add --force-update goharbor {{ helm_repos.harbor }}
+  changed_when: false
+
+- name: 更新 Harbor 仓库索引
+  command: helm repo update goharbor
+  changed_when: false
+
+- name: 复制 Harbor values
+  copy:
+    src: "{{ infra_repo }}/cicd/harbor/{{ item }}"
+    dest: "{{ ansible_workdir }}/harbor-{{ item }}"
+    mode: "0644"
+  loop:
+    - values.yaml
+    - values-prod.yaml
+
+- name: 安装 Harbor
+  command:
+    - helm
+    - upgrade
+    - --install
+    - harbor
+    - goharbor/harbor
+    - --namespace
+    - platform-system
+    - --version
+    - "{{ chart_versions.harbor }}"
+    - --values
+    - "{{ ansible_workdir }}/harbor-values.yaml"
+    - --values
+    - "{{ ansible_workdir }}/harbor-values-prod.yaml"
+    - --set
+    - "externalURL=https://{{ server_public_ip }}:30003"
+    - --wait
+    - --timeout
+    - 15m
+
+- name: 等待 harbor-core 就绪
+  command: kubectl -n platform-system rollout status deployment/harbor-core --timeout=600s
+  changed_when: false
+
+# 取出内部根 CA，第二个 play 会分发到所有节点的 containerd
+- name: 读取 harbor-tls 的 ca.crt
+  shell: kubectl -n platform-system get secret harbor-tls -o jsonpath='{.data.ca\.crt}' | base64 -d
+  register: harbor_ca_raw
+  changed_when: false
+
+- name: 记录内部 CA
+  set_fact:
+    harbor_ca_pem: "{{ harbor_ca_raw.stdout }}"

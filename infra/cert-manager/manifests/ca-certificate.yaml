@@ -1,0 +1,22 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: fake-tiktok-ca
+  namespace: cert-manager
+spec:
+  isCA: true                  # 标记这份证书是CA证书，允许签发其他证书（CA:TRUE）
+  commonName: fake-tiktok-internal-ca  # CA名称，用于标识这个内部根CA
+  secretName: fake-tiktok-ca  # 生成的Secret名称，存放根CA的 tls.crt / tls.key / ca.crt
+  duration: 87600h            # 证书有效期：87600小时 = 10年
+  renewBefore: 8760h          # 到期前多久自动续期：8760小时 = 提前1年更新CA证书
+  privateKey:               
+    algorithm: ECDSA          
+    size: 256                 
+  usages:                     # 证书用途（密钥用法）
+  - cert sign               # ✅ 允许使用该CA私钥签名其他证书（核心，签发叶子证书必备）
+  - crl sign                
+  - digital signature       # ✅ 允许用来做数字签名
+  issuerRef:
+    name: selfsigned-bootstrap
+    kind: ClusterIssuer
+    group: cert-manager.io

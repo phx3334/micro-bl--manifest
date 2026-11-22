@@ -1,0 +1,67 @@
+# 平台组件（存储 / 监控必需件 / 证书 / Istio / Harbor / Tekton / ArgoCD）
+# 用法：ansible-playbook playbooks/03-install-bootstrap.yml
+# 只想验证控制面时：-e install_istio=false -e install_harbor=false ...
+---
+- name: 平台组件 bootstrap（第一个 master）
+  hosts: masters
+  become: true
+  any_errors_fatal: true
+  vars:
+    infra_repo: "{{ playbook_dir | dirname }}"
+  pre_tasks:
+    - name: 计算服务器公网 IP（Harbor externalURL / 证书 SAN）
+      set_fact:
+        server_public_ip: "{{ hostvars[groups['masters'][0]]['ansible_host'] }}"
+      when: inventory_hostname == groups['masters'][0]
+  roles:
+    - role: bootstrap
+      when: inventory_hostname == groups['masters'][0]
+
+# Harbor 的证书由内部 CA 签发，containerd 不信任就会 ImagePullBackOff
+- name: 节点 containerd 信任 Harbor 内部 CA
+  hosts: all
+  become: true
+  any_errors_fatal: true
+  vars:
+    server_public_ip: "{{ hostvars[groups['masters'][0]]['ansible_host'] }}"
+    harbor_registry_dir: "/etc/containerd/certs.d/{{ hostvars[groups['masters'][0]]['ansible_host'] }}:30003"
+  handlers:
+    - name: restart containerd
+      systemd:
+        name: containerd
+        state: restarted
+  tasks:
+    - name: 分发 Harbor 内部 CA 到 containerd
+      when:
+        - install_harbor | bool
+        - hostvars[groups['masters'][0]].harbor_ca_pem is defined
+      block:
+        - name: 创建 Harbor registry 证书目录
+          file:
+            path: "{{ harbor_registry_dir }}"
+            state: directory
+            owner: root
+            group: root
+            mode: "0755"
+
+        - name: 写入内部根 CA
+          copy:
+            content: "{{ hostvars[groups['masters'][0]].harbor_ca_pem }}"
+            dest: "{{ harbor_registry_dir }}/ca.crt"
+            owner: root
+            group: root
+            mode: "0644"
+          notify: restart containerd
+
+        - name: 写入 hosts.toml（HTTPS + 校验内部 CA）
+          copy:
+            content: |
+              server = "https://{{ server_public_ip }}:30003"
+
+              [host."https://{{ server_public_ip }}:30003"]
+                ca = "{{ harbor_registry_dir }}/ca.crt"
+            dest: "{{ harbor_registry_dir }}/hosts.toml"
+            owner: root
+            group: root
+            mode: "0644"
+          notify: restart containerd

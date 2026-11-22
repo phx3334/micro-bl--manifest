@@ -1,0 +1,46 @@
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: fake-tiktok-mesh
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+spec:
+  groups:
+    - name: mesh-alerting
+      interval: 1m
+      rules:
+        # 服务间 gRPC 错误率：> 5% 说明下游服务或网络有问题。
+        # 注意这里不按 5xx 判（gRPC 没有 HTTP 状态码），而是「非 0 状态码」。
+        - alert: MeshGRPCErrorRateHigh
+          expr: |
+            (
+              sum by (destination_service_name) (
+                rate(istio_requests_total{reporter="destination", request_protocol="grpc", grpc_response_status!="0"}[5m])
+              )
+              /
+              sum by (destination_service_name) (
+                rate(istio_requests_total{reporter="destination", request_protocol="grpc"}[5m])
+              )
+            ) > 0.05
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "服务间 gRPC 错误率超过 5%（{{ $labels.destination_service_name }}：{{ $value | humanizePercentage }}）"
+            description: "非 0 gRPC 状态码占比过高。这类失败不产生业务 span，calls_total 看不到；查 sidecar 日志与下游服务健康。"
+
+        # sidecar 层 503：连接池打满 / 熔断摘除后无可用实例 / 上游连接被拒。
+        # 这类错误发生在业务代码之外，业务日志里只有「调用失败」，没有更细的线索。
+        - alert: MeshUpstream503
+          expr: |
+            sum by (destination_service_name) (
+              rate(istio_requests_total{reporter="destination", response_code="503"}[5m])
+            ) > 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "网格层 503 持续出现（{{ $labels.destination_service_name }}：{{ $value | printf \"%.2f\" }}/s）"
+            description: "sidecar 无法建立到上游的连接：可能是实例被熔断摘除、连接池打满，或下游 Pod 未就绪。先看 DestinationRule 的 outlierDetection 与就绪探针。"

@@ -1,0 +1,69 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: '{{ include "fake-tiktok.configMapName" . }}'
+  namespace: '{{ include "fake-tiktok.namespace" . }}'
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/managed-by: '{{ .Release.Service }}'
+    helm.sh/chart: '{{ .Chart.Name }}-{{ .Chart.Version }}'
+data:
+  APP_SERVER_HOST: '{{ .Values.config.server.host }}'
+  APP_SERVER_ROUTER_PREFIX: '{{ .Values.config.server.routerPrefix }}'
+
+  APP_DATABASE_HOST: '{{ .Values.config.database.host }}'
+  APP_DATABASE_PORT: '{{ .Values.config.database.port }}'
+  APP_DATABASE_USER: '{{ .Values.config.database.user }}'
+  APP_DATABASE_AUTO_MIGRATE: '{{ .Values.config.app.autoMigrate }}'
+  APP_DATABASE_TLS_ENABLED: '{{ .Values.config.database.tlsEnabled }}'
+  APP_DATABASE_TLS_CA_FILE: '{{ .Values.config.tls.caFile }}'
+
+  APP_REDIS_HOST: '{{ .Values.config.redis.host }}'
+  APP_REDIS_PORT: '{{ .Values.config.redis.port }}'
+  APP_REDIS_DB: '{{ .Values.config.redis.db }}'
+  APP_REDIS_KEY_PREFIX: '{{ .Values.config.redis.keyPrefix }}'
+  APP_REDIS_TLS_ENABLED: '{{ .Values.config.redis.tlsEnabled }}'
+  APP_REDIS_TLS_CA_FILE: '{{ .Values.config.tls.caFile }}'
+  APP_REDIS_SENTINEL_ADDRS: '{{ .Values.config.redis.sentinelAddrs }}'
+  APP_REDIS_MASTER_NAME: '{{ .Values.config.redis.masterName }}'
+
+  APP_KAFKA_BROKERS: '{{ .Values.config.kafka.brokers }}'
+  APP_KAFKA_TLS_ENABLED: '{{ .Values.config.kafka.tlsEnabled }}'
+  APP_KAFKA_TLS_CA_FILE: '{{ .Values.config.tls.caFile }}'
+
+  APP_MINIO_ENDPOINT: '{{ .Values.config.minio.endpoint }}'
+  APP_MINIO_BUCKET: '{{ .Values.config.minio.bucket }}'
+  APP_MINIO_USE_SSL: '{{ .Values.config.minio.useSSL }}'
+  APP_MINIO_TLS_CA_FILE: '{{ .Values.config.tls.caFile }}'
+  APP_MINIO_PUBLIC_READ: '{{ .Values.config.minio.publicRead }}'
+  APP_MINIO_URL_EXPIRY: '{{ .Values.config.minio.urlExpiry }}'
+
+  APP_GRPC_USER_ADDR: '{{ .Values.config.grpc.userAddr }}'
+  APP_GRPC_VIDEO_ADDR: '{{ .Values.config.grpc.videoAddr }}'
+  APP_GRPC_INTERACTION_ADDR: '{{ .Values.config.grpc.interactionAddr }}'
+
+  APP_JWT_ISSUER: '{{ .Values.config.jwt.issuer }}'
+  APP_JWT_ACCESS_TOKEN_EXPIRY_TIME: '{{ .Values.config.jwt.accessExpiry }}'
+  APP_JWT_REFRESH_TOKEN_EXPIRY_TIME: '{{ .Values.config.jwt.refreshExpiry }}'
+
+  APP_OTEL_ENABLED: '{{ .Values.config.otel.enabled }}'
+  APP_OTEL_ENDPOINT: '{{ .Values.config.otel.endpoint }}'
+  APP_OTEL_SAMPLE_RATIO: '{{ .Values.config.otel.sampleRatio }}'
+  APP_OTEL_ENVIRONMENT: '{{ .Values.config.otel.environment }}'
+  # 版本随镜像 tag，便于在 Tempo 里按版本切分
+  APP_OTEL_VERSION: '{{ .Values.images.tag }}'
+
+  APP_UPLOAD_MAX_FILE_SIZE: '{{ .Values.config.upload.maxFileSize }}'
+  APP_TRANSCODE_TIMEOUT: '{{ .Values.config.transcode.timeout }}'
+  APP_FFMPEG_BINARY_PATH: '{{ .Values.config.ffmpeg.binaryPath }}'
+  APP_FFMPEG_OUTPUT_CODEC: '{{ .Values.config.ffmpeg.outputCodec }}'
+  APP_FFMPEG_CRF: '{{ .Values.config.ffmpeg.crf }}'
+  APP_FFMPEG_PRESET: '{{ .Values.config.ffmpeg.preset }}'
+
+  APP_CAPTCHA_LENGTH: '{{ .Values.config.captcha.length }}'
+  APP_SKIP_CAPTCHA: '{{ .Values.config.app.skipCaptcha }}'
+
+  APP_ZAP_LEVEL: '{{ .Values.config.app.zapLevel }}'
+  APP_ZAP_FORMAT: '{{ .Values.config.app.zapFormat }}'
+  APP_ZAP_FILENAME: '{{ .Values.config.app.zapFilename }}'
+  APP_ZAP_IS_CONSOLE_PRINT: '{{ .Values.config.app.zapConsolePrint }}'

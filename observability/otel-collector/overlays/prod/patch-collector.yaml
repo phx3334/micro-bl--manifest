@@ -1,0 +1,25 @@
+# prod：单副本。tail_sampling + spanmetrics 是进程内有状态组件：
+#   · 多副本时同一 trace 的 span 会被 Service 分发到不同 Pod，尾采决策不完整；
+#   · Prometheus 抓 Service 也只能命中其中一个副本，另一个副本的指标会缺失/跳变。
+# 需要水平扩展时，改为 gateway + loadbalancing exporter（routing_key: traceID）
+# + 独立采样层，而不是直接给这个 Deployment 加副本。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: otel-collector
+          env:
+            - name: TAIL_SAMPLE_PERCENT
+              value: "10"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi

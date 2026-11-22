@@ -1,0 +1,40 @@
+{{- range $name, $svc := .Values.services }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ include "fake-tiktok.namespace" $ }}
+  labels:
+    app: {{ $name }}
+    {{- include "fake-tiktok.labels" $ | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ $name }}
+  ports:
+    - name: {{ $name }}-api
+      port: {{ $svc.httpPort }}
+      targetPort: {{ $name }}-api
+    - name: {{ $name }}-rpc
+      port: {{ $svc.grpcPort }}
+      targetPort: {{ $name }}-rpc
+{{- end }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: {{ include "fake-tiktok.namespace" . }}
+  labels:
+    app: web
+    {{- include "fake-tiktok.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app: web
+  ports:
+    - name: web-http
+      port: {{ .Values.web.port }}
+      targetPort: web-http

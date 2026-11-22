@@ -1,0 +1,27 @@
+# mTLS 策略：全网格 STRICT（mesh 级，唯一一条）
+#
+# 生效前提：mTLS 是 sidecar 之间的事，PeerAuthentication 只约束「注入了 sidecar 的 Pod」。
+#   · 没注入 sidecar 的 Pod 不受 PeerAuthentication 影响，也不会拒绝 plaintext
+#     → middleware（mysql/redis/kafka）与 MinIO 都不注入（见 namespaces.yaml /
+#       minio values 的 podAnnotations），它们的端口天然明文可达，无需任何例外；
+#     → observability（Prometheus/Tempo 等）同理，网格外直接抓取/读写。
+#   · 注入范围内（fake-tiktok 业务互调）没有需要被网格外明文抓取的端口：
+#     业务指标走 OTLP push 到 collector，Prometheus 只抓 collector:8889（网格外）。
+#
+# 因此这里曾经存在的 middleware 命名空间级 portLevelMtls 例外
+# （9104 mysqld_exporter / 9121 redis_exporter / 9308 kafka-exporter → PERMISSIVE）
+# 已随「中间件整体退出网格」一并删除——没有 sidecar 就没有拦截，Prometheus 直连即可。
+#
+# 优先级备忘（Istio 规则：越具体越优先）：
+#   port-level > workload-level > namespace-level > mesh-level
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+spec:
+  # 不带 selector = 整个网格生效（实际只约束注入了 sidecar 的 Pod）
+  mtls:
+    mode: STRICT

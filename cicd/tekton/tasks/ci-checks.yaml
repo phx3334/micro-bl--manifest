@@ -1,0 +1,105 @@
+# 代码质量门禁：全部在集群内跑，不依赖 GitHub Actions
+#
+# 为什么拆成两个 Task 而不是一个：后端和前端依赖的镜像完全不同
+# 拆开后各自独立缓存、独立失败、独立重试。
+#
+# 门禁失败 → 后续 build-scan-push 不会启动 → 镜像不会进 Harbor，
+# 这是"CI 在 Tekton 内部闭环"的关键：GitHub 只负责发一次 push 事件。
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: backend-ci
+  namespace: platform-system
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+spec:
+  # 挂载源码共享卷，拉取代码的Task把源码放到这个workspace，供当前Task读取
+  workspaces:
+    - name: source
+  # 可配置参数：Go代理、sumdb校验地址，适配国内网络
+  params:
+    - name: go-proxy
+      type: string
+      default: "https://goproxy.cn,direct"
+    - name: go-sumdb
+      type: string
+      default: "sum.golang.google.cn"
+  steps:
+    - name: verify
+      # Go官方镜像，用来执行后端代码校验、编译、单元测试
+      image: golang:1.26
+      # 指定后端代码目录
+      workingDir: $(workspaces.source.path)/server
+      env:
+        # Go module代理，国内加速拉取依赖
+        - name: GOPROXY
+          value: $(params.go-proxy)
+        # sum校验库地址，国内加速
+        - name: GOSUMDB
+          value: $(params.go-sumdb)
+        # 关闭CGO，编译静态无依赖二进制，适配alpine轻量镜像
+        - name: CGO_ENABLED
+          value: "0"
+      # 资源限制，防止CI任务抢占集群资源
+      computeResources:
+        requests:
+          cpu: 500m
+          memory: 1Gi
+        limits:
+          cpu: "2"
+          memory: 3Gi
+      script: |
+        #!/usr/bin/env sh
+        set -eu  # 命令失败直接退出；引用未定义变量直接报错，门禁不允许静默失败
+
+        # 三条命令放在同一个step：共享容器内GOMODCACHE依赖缓存，避免重复下载依赖
+        echo "==> go vet：Go官方静态检查，捕获代码潜在错误、不规范写法"
+        go vet ./...
+
+        echo "==> go build：编译所有包，编译报错直接阻断流水线"
+        go build ./...
+
+        echo "==> go test：执行全部单元测试，单测失败门禁失败"
+        go test ./...
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: frontend-ci
+  namespace: platform-system
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+spec:
+  # 和后端共用同一份源码卷，只读读取前端代码
+  workspaces:
+    - name: source
+  steps:
+    - name: verify
+      # alpine版node镜像，体积更小，前端环境
+      image: node:22-alpine
+      # 指定前端web代码目录
+      workingDir: $(workspaces.source.path)/web
+      env:
+        # CI 标识：供 lint/build 工具识别 CI 环境；当前门禁以 error 为准，warning 不阻断
+        - name: CI
+          value: "true"
+      # 资源配额，和后端CI对齐
+      computeResources:
+        requests:
+          cpu: 500m
+          memory: 1Gi
+        limits:
+          cpu: "2"
+          memory: 3Gi
+      script: |
+        #!/usr/bin/env sh
+        set -eu  # 失败即退出，门禁拦截
+
+        echo "==> npm ci：严格按照package-lock.json安装依赖，版本锁定，不修改lock文件，CI标准用法"
+        npm ci
+
+        echo "==> npm run lint：ESLint代码规范检查，不符合规范直接失败"
+        npm run lint
+
+        echo "==> npm run build：前端打包构建，TS类型错误、资源缺失等构建失败直接拦截"
+        npm run build

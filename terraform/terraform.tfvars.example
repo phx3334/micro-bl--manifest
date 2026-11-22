@@ -1,0 +1,23 @@
+# 复制为 terraform.tfvars 后填写；该文件已被 .gitignore 排除
+region            = "cn-hangzhou"
+# availability_zone = "cn-hangzhou-i"   # 留空自动选择
+
+# 必填：只允许自己的公网 IP 访问 SSH 与 6443
+ssh_cidr = "1.2.3.4/32"
+
+# 必填：本机 ~/.ssh/id_ed25519.pub 的内容
+ssh_public_key = "ssh-ed25519 AAAA... you@example"
+
+# 规格（按量付费）
+master_instance_type    = "ecs.c7.large"     # 2C4G
+worker_instance_type    = "ecs.c7.2xlarge"   # 8C16G
+master_count            = 3
+worker_count            = 3
+master_system_disk_size = 40
+worker_system_disk_size = 40
+worker_data_disk_size   = 80                  # prod PVC 合计约 70G，单节点全堆也放得下
+
+# 入口开放范围：演示环境可 0.0.0.0/0；生产建议收敛到固定出口 IP
+node_port_cidr = "0.0.0.0/0"
+
+# 控制面入口由 alicloud_slb_load_balancer 自动创建（私网 CLB:6443），无需填写 VIP

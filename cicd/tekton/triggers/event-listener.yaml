@@ -1,0 +1,45 @@
+# GitHub webhook 入口
+#
+# 校验链：
+#   1) github interceptor 用 shared secret 验 X-Hub-Signature-256（HMAC）
+#      ——签名不对直接 401，请求不会进入下面的 binding；
+#   2) github interceptor 只接 push 事件；
+#   3) CEL 只放 refs/heads/main —— 功能分支的 push 不应该触发镜像构建。
+#
+# 暴露方式：本 EventListener 自身只建 ClusterIP Service（sink），
+# 对外是 trigger-service.yaml 里固定 NodePort 30081 的 Service。
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: github-listener
+  namespace: platform-system
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+spec:
+  serviceAccountName: tekton-triggers-sa
+  triggers:
+    - name: github-push
+      interceptors:
+        - ref:
+            name: github
+          params:
+            - name: secretRef
+              value:
+                secretName: github-webhook-secret
+                secretKey: secretToken
+            - name: eventTypes
+              value: ["push"]
+        - ref:
+            name: cel
+          params:
+            - name: filter
+              value: "body.ref == 'refs/heads/main'"
+      bindings:
+        - ref:
+            name: github-push
+      template:
+        ref:
+          name: build-app
+  resources:
+    kubernetesResource:
+      serviceType: ClusterIP

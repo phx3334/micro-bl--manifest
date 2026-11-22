@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: observability
+
+resources:
+  - deployment.yaml
+
+# ConfigMap 由 loki.yaml 现场生成，配置只存在一份
+# 文件名即 ConfigMap key → 容器参数 -config.file=/conf/loki.yaml
+configMapGenerator:
+  - name: loki-config
+    files:
+      - loki.yaml

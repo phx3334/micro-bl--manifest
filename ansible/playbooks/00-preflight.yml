@@ -1,0 +1,38 @@
+# 前置检查：不碰任何节点，只验证 inventory 是否由 terraform 正确生成
+# 用法：ansible-playbook playbooks/00-preflight.yml
+---
+- name: 集群前置检查
+  hosts: localhost
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    infra_repo: "{{ playbook_dir | dirname }}"
+  tasks:
+    - name: 检查分组是否存在
+      assert:
+        that:
+          - groups['masters'] is defined
+          - groups['masters'] | length >= 3
+          - groups['workers'] is defined
+          - groups['workers'] | length >= 1
+        fail_msg: >-
+          inventory 为空或节点数不足。先执行 terraform apply 生成
+          ansible/inventory/hosts.ini（3 master + 1 以上 worker）。
+
+    - name: 检查控制面入口
+      assert:
+        that:
+          - apiserver_endpoint is defined
+          - apiserver_endpoint | length > 0
+        fail_msg: >-
+          inventory 缺少 apiserver_endpoint。它由 terraform/slb.tf 生成
+          （私网 CLB 的 host:port），请确认 terraform apply 已完成。
+
+    - name: 打印执行计划
+      debug:
+        msg:
+          - "控制面入口（CLB）：{{ apiserver_endpoint }}"
+          - "master：{{ groups['masters'] | join(', ') }}"
+          - "worker：{{ groups['workers'] | join(', ') }}"
+          - "Kubernetes：{{ kubernetes_minor }} / containerd：{{ containerd_version }}"
+          - "下一步：ansible-playbook playbooks/01-provision-nodes.yml"

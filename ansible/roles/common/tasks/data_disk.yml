@@ -1,0 +1,35 @@
+# 数据盘：只在第一次分区/格式化，之后按 UUID 挂载（幂等）
+---
+- name: 确认数据盘设备存在
+  stat:
+    path: "{{ worker_data_disk_device }}"
+  register: worker_data_disk
+
+- name: 数据盘不存在时直接失败（避免悄悄写满 40G 系统盘）
+  assert:
+    that:
+      - worker_data_disk.stat.exists
+    fail_msg: "{{ worker_data_disk_device }} 不存在：检查 terraform data_disks，或改 group_vars/workers.yml 的 worker_data_disk_device"
+
+- name: 探测数据盘文件系统
+  command: blkid -s TYPE -o value {{ worker_data_disk_device }}
+  register: data_disk_fs
+  changed_when: false
+  failed_when: false
+
+- name: 格式化数据盘（仅当没有文件系统时）
+  command: mkfs.ext4 -F -L data {{ worker_data_disk_device }}
+  when: data_disk_fs.rc != 0
+
+- name: 读取数据盘 UUID
+  command: blkid -s UUID -o value {{ worker_data_disk_device }}
+  register: data_disk_uuid
+  changed_when: false
+
+- name: 挂载到 /data 并写入 fstab
+  mount:
+    path: /data
+    src: "UUID={{ data_disk_uuid.stdout }}"
+    fstype: ext4
+    opts: defaults,nofail
+    state: mounted

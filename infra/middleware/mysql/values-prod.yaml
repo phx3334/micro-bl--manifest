@@ -1,0 +1,20 @@
+# 统一凭据 phx / 147258（必须与 apps/fake-tiktok/values-prod.yaml 的
+# secret.data.databasePassword 一致，否则业务 Pod 全部连不上库）
+auth:
+  username: phx
+  password: "147258"
+  rootPassword: "147258"
+
+primary:
+  persistence:
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+
+# 业务已用非 root 账号 phx 连接并按库授权（见 init/01-databases.sql）；
+# 真实生产应改为每库独立账号，并把凭据交给 external secret 管理。

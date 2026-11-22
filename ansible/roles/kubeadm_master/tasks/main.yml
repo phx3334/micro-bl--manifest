@@ -1,0 +1,96 @@
+# 控制面：第一个 master 执行 kubeadm init，其余 master 走 control-plane join
+---
+- name: 检查是否已经初始化
+  stat:
+    path: /etc/kubernetes/admin.conf
+  register: master_admin_conf
+
+- name: 生成控制面证书加密 key（仅首次 init 用）
+  command: openssl rand -hex 32
+  register: kubeadm_cert_key
+  when:
+    - inventory_hostname == groups['masters'][0]
+    - not master_admin_conf.stat.exists
+  changed_when: false
+
+- name: 渲染 kubeadm init 配置
+  template:
+    src: kubeadm-init.yaml.j2
+    dest: "{{ ansible_workdir }}/kubeadm-init.yaml"
+    owner: root
+    group: root
+    mode: "0600"
+  when: inventory_hostname == groups['masters'][0]
+
+- name: 初始化第一个 master
+  command: kubeadm init --config {{ ansible_workdir }}/kubeadm-init.yaml --upload-certs
+  args:
+    creates: /etc/kubernetes/admin.conf
+  when: inventory_hostname == groups['masters'][0]
+
+# helm / cilium 先于其他 master join 执行：Cilium DaemonSet 起不来时，
+# 新节点会一直 NotReady，join 本身没问题但排障体验很差
+- name: 为 root 准备 kubeconfig（第一个 master）
+  block:
+    - name: 创建 /root/.kube
+      file:
+        path: /root/.kube
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: 复制 admin.conf
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /root/.kube/config
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0600"
+  when: inventory_hostname == groups['masters'][0]
+
+- name: 安装 Helm
+  include_tasks: helm.yml
+  when: inventory_hostname == groups['masters'][0]
+
+- name: 安装 Cilium CNI
+  include_tasks: cilium.yml
+  when:
+    - inventory_hostname == groups['masters'][0]
+    - install_cilium | default(true) | bool
+
+- name: 生成 join 所需的 token / CA hash / certificate key
+  include_tasks: join_facts.yml
+  when: inventory_hostname == groups['masters'][0]
+
+- name: 其余 master 加入控制面
+  command: >-
+    kubeadm join {{ apiserver_endpoint }}
+    --token {{ hostvars[groups['masters'][0]].join_token }}
+    --discovery-token-ca-cert-hash sha256:{{ hostvars[groups['masters'][0]].join_ca_hash }}
+    --control-plane
+    --certificate-key {{ hostvars[groups['masters'][0]].join_certificate_key }}
+    --cri-socket unix:///run/containerd/containerd.sock
+  args:
+    creates: /etc/kubernetes/kubelet.conf
+  when: inventory_hostname != groups['masters'][0]
+
+- name: 为所有 master 准备 root kubeconfig
+  block:
+    - name: 创建 /root/.kube
+      file:
+        path: /root/.kube
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: 复制 admin.conf
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /root/.kube/config
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0600"

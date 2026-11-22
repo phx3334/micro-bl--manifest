@@ -1,0 +1,37 @@
+# MinIO 服务端自带 /minio/v2/metrics/cluster，与 API 共用 9000 端口（新版 chart 无独立 metrics 端口），
+# 因此直接抓 minio Service 的 api 端口，不需要额外 exporter。
+#
+# 前置：infra/middleware/minio/values.yaml 的 extraEnvVars 已设 MINIO_PROMETHEUS_AUTH_TYPE=public。
+#
+# 跨命名空间：本 SM 声明在 observability（与 PrometheusRule 同目录，operator 就绪后一起 apply），
+# Service 实际在 middleware → spec.namespaceSelector 指定 Service 所在命名空间；
+# Prometheus 侧 serviceMonitorNamespaceSelector 默认 {}（全命名空间），本 SM 在自己命名空间内，
+# 两层发现都成立。
+# 端口名 api 随 chart 版本可能变化，抓不到时 `kubectl -n middleware get svc minio` 核对。
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: minio
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+spec:
+  namespaceSelector:
+    matchNames:
+      - middleware
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: minio
+  endpoints:
+    - port: api
+      path: /minio/v2/metrics/cluster
+      # MinIO 已开单向 TLS：https + 内部根 CA（ConfigMap internal-ca 由
+      # cert-manager 层的分发 CronJob 写到 observability；operator 会把它挂给 Prometheus）
+      scheme: https
+      tlsConfig:
+        ca:
+          configMap:
+            name: internal-ca
+            key: ca.crt
+        serverName: minio.middleware
+      interval: 30s   # 容量/节点变化缓慢，30s 足够，省存储

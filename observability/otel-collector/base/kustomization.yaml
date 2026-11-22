@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# 所有资源落到 observability 命名空间（由 infra/base/namespaces.yaml 预先创建）
+namespace: observability
+
+resources:
+  - deployment-gateway.yaml
+  - daemonset-agent.yaml
+
+# ConfigMap 由上面的配置文件现场生成：配置只存在一份，不手抄进 ConfigMap
+# 文件名即 ConfigMap 的 key，容器里 --config=/conf/<文件名> 与此严格对应
+configMapGenerator:
+  - name: otel-collector-gateway-config
+    files:
+      - config.yaml
+  - name: otel-collector-agent-config
+    files:
+      - config-agent.yaml

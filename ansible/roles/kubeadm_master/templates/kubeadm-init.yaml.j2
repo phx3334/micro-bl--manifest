@@ -1,0 +1,38 @@
+# kubeadm 1.32（v1beta4）；controlPlaneEndpoint 指向私网 CLB
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: "{{ private_ip }}"
+  bindPort: {{ apiserver_port }}
+# --upload-certs 用它加密 kubeadm-certs Secret；其他 master join 时用同一个 key 解密
+certificateKey: "{{ kubeadm_cert_key.stdout | default('') }}"
+nodeRegistration:
+  name: "{{ inventory_hostname }}"
+  criSocket: unix:///run/containerd/containerd.sock
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+clusterName: {{ cluster_name }}
+controlPlaneEndpoint: "{{ apiserver_endpoint }}"
+# 全部控制面镜像走阿里云，避免 registry.k8s.io 拉不动
+imageRepository: {{ kubeadm_image_repository }}
+networking:
+  podSubnet: {{ pod_subnet }}
+  serviceSubnet: {{ service_subnet }}
+  dnsDomain: cluster.local
+apiServer:
+  certSANs:
+    # CLB 私网地址 + 三台 master 的私网/公网地址（公网用于本机 kubectl 直连）
+    - "{{ apiserver_endpoint.split(':')[0] }}"
+    - "{{ private_ip }}"
+    - "{{ inventory_hostname }}"
+{% for h in groups['masters'] %}
+    - "{{ hostvars[h]['private_ip'] }}"
+    - "{{ hostvars[h]['ansible_host'] }}"
+{% endfor %}
+---
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+cgroupDriver: systemd
+# workers 上是 /data/kubelet（80G 数据盘），masters 上是系统盘默认路径
+rootDir: "{{ kubelet_root_dir }}"

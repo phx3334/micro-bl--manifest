@@ -1,0 +1,89 @@
+# otel-collector gateway 形态：Deployment + Service
+#
+# 职责：接收三个业务服务与 worker 的 OTLP 上报，按信号分流到 Tempo（trace）。
+# 配置见 config.yaml（由 kustomization.yaml 的 configMapGenerator 生成 ConfigMap）。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  labels:
+    app.kubernetes.io/name: otel-collector
+    app.kubernetes.io/component: gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otel-collector
+      app.kubernetes.io/component: gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: otel-collector
+        app.kubernetes.io/component: gateway
+    spec:
+      # 只接收 OTLP 并转发，不访问 K8s API → 不挂载 SA token
+      automountServiceAccountToken: false
+      containers:
+        - name: otel-collector
+          # 必须是 contrib 版：filelog / loki 等组件不在 core 发行版。
+          image: otel/opentelemetry-collector-contrib:0.121.0
+          args:
+            - --config=/conf/config.yaml
+          ports:
+            - name: otlp-grpc
+              containerPort: 4317
+            - name: otlp-http
+              containerPort: 4318
+            - name: prometheus
+              containerPort: 8889
+            - name: health
+              containerPort: 13133
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          # health_check 扩展提供 /health；探针失败会被重启，属于"采集器自身挂死"信号
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: health
+            initialDelaySeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: otel-collector-gateway-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  labels:
+    app.kubernetes.io/name: otel-collector
+    app.kubernetes.io/component: gateway
+spec:
+  selector:
+    app.kubernetes.io/name: otel-collector
+    app.kubernetes.io/component: gateway
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: otlp-grpc
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http
+    - name: prometheus
+      port: 8889
+      targetPort: prometheus

@@ -1,0 +1,8 @@
+# prod：Application 数量仍然很少，但 controller/repoServer 会持续 reconcile，
+# 给 2 副本避免单点；server 2 副本便于滚动升级时不断 UI。
+server:
+  replicas: 2
+controller:
+  replicas: 2
+repoServer:
+  replicas: 2

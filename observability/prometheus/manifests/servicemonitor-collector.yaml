@@ -1,0 +1,19 @@
+# otel-collector 自身的指标（gateway 的 prometheus exporter 在 8889）
+# 它的 Service 由 observability/otel-collector 的 base 创建，端口名为 prometheus
+# namespace 显式声明：本目录 kustomization 没有统一 namespace 字段，
+# 不写会落到 kubectl 当前 context 的默认命名空间（能工作但语义漂移）
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: otel-collector
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otel-collector
+  endpoints:
+    - port: prometheus
+      path: /metrics
+      interval: 15s

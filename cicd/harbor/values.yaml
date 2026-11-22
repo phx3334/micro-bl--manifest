@@ -1,0 +1,136 @@
+# Harbor（chart goharbor/harbor-helm v1.19.4 / Harbor 2.15.4）
+#
+# 本文件是环境无关基线（暴露方式、存储、组件开关），环境差异只在 values-prod。
+# 安装：helm upgrade --install harbor harbor/harbor -n platform-system \
+#         --version 1.19.4 -f values.yaml -f values-prod.yaml \
+#         --set externalURL=https://<master1-public-ip>:30003
+#
+# 安装顺序（证书链路，缺一步 Harbor 起不来）：
+#   1) cert-manager（values 在 infra/cert-manager/）
+#   2) kubectl apply -k infra/cert-manager/manifests   → 生成 harbor-tls Secret
+#   3) helm install harbor（本文件）
+#
+# 四个必须人工做的动作（chart 不管）：
+#   1) 建项目 fake-tiktok（与 apps chart 的 images.registry 路径一致），否则 push 报 PROJECT_NOT_FOUND；
+#   2) 建 robot 账号（权限：项目 fake-tiktok 的 push/pull），凭据写进 Tekton 的 harbor-push Secret；
+#   3) 节点 containerd 信任内部 CA（Ansible 负责，见文末注释），否则 kubelet 拉不动镜像。
+#   4) 配 retention/quota（缓存镜像治理见 README.md，retention 不能误删 buildcache-*）。
+
+# ── 对外访问：NodePort + cert-manager 签发证书 ────────────────
+# 端口沿用 chart 默认 30002(http) / 30003(https)，与项目已占用端口
+# （30080/30090/30093/30300/30320/30400/30900/30901）不冲突。
+expose:
+  type: nodePort
+  tls:
+    enabled: true
+    # secret = 用 cert-manager 签发的证书，不再由 chart 自签；
+    # Secret 里必须有 tls.crt / tls.key（harbor-tls 由 infra/cert-manager/manifests 生成）
+    certSource: secret
+    secret:
+      secretName: harbor-tls
+  nodePort:
+    name: harbor
+    ports:
+      http:
+        port: 80
+        nodePort: 30002
+      https:
+        port: 443
+        nodePort: 30003
+
+# 必须与客户端实际使用的地址逐字一致：它决定 portal 上展示的 docker push 命令
+# 和 token service 返回给客户端的地址；写错的表现是"登录成功但 push 401"。
+# 实验环境直接用节点 IP（与 MinIO 的 REPLACE_WITH_SERVER_IP:30900 同风格），
+# 避免为 harbor.example.com 额外维护 CoreDNS/hostAliases。
+# Ansible 会用 --set 覆盖；手工安装时必须显式 --set externalURL=...
+externalURL: https://REPLACE_WITH_SERVER_IP:30003
+
+# ── 存储：全部本地 PVC（单机 demo；生产换 S3/外部 DB 只改这一段） ──
+persistence:
+  enabled: true
+  # helm uninstall 不删 PVC：镜像仓库的数据比 chart 生命周期长
+  resourcePolicy: keep
+  persistentVolumeClaim:
+    registry:
+      size: 10Gi
+    jobservice:
+      jobLog:
+        size: 1Gi
+    database:
+      size: 1Gi
+    redis:
+      size: 1Gi
+    trivy:
+      size: 2Gi
+
+# 单副本 + RWO 卷：滚动更新会出现新旧 Pod 争抢同一块 PVC，必须 Recreate
+updateStrategy:
+  type: Recreate
+
+database:
+  type: internal
+redis:
+  type: internal
+
+trivy:
+  enabled: true
+  # 只报有修复版本的漏洞：无修复项的 HIGH/CRITICAL 会让流水线永久红，且无法通过升级解决
+  ignoreUnfixed: true
+
+# 指标端点先开着（core/registry/jobservice 各一个 exporter），ServiceMonitor 暂不建：
+# chart 的 SM 端口名随版本变，等 Harbor 稳定后按"端口名核对"流程再接 Prometheus
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: false
+
+# 凭据一律不进基线：values-prod 提供占位值，部署前替换或改用外部 Secret
+# secretKey 必须 16 字符，用于加密 session/CSRF 等，不是 TLS 私钥
+harborAdminPassword: ""
+secretKey: ""
+
+# ── 2 节点实验集群的资源水位 ────────────────────────────────
+# Harbor 是"组件最多"的中间件（core/portal/registry/jobservice/db/redis/trivy），
+# 不压 resources 会把 2 台 worker 吃满
+core:
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+portal:
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 200m, memory: 128Mi }
+registry:
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+jobservice:
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 300m, memory: 256Mi }
+database:
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+redis:
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 200m, memory: 128Mi }
+trivy:
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+
+# ── 节点侧信任内部 CA（Ansible 03 落地，非 chart 职责） ──────
+# 1) 取出 CA（harbor-tls 由 cert-manager 签发，ca.crt 就是内部 CA）：
+#    kubectl -n platform-system get secret harbor-tls \
+#      -o jsonpath='{.data.ca\.crt}' | base64 -d > /etc/containerd/certs.d/<节点IP>:30003/ca.crt
+# 2) /etc/containerd/certs.d/<节点IP>:30003/hosts.toml:
+#      server = "https://<节点IP>:30003"
+#      [host."https://<节点IP>:30003"]
+#        ca = "/etc/containerd/certs.d/<节点IP>:30003/ca.crt"
+# 3) systemctl restart containerd
+#
+# 这里不再用 skip_verify = true：证书 SAN 已经是节点 IP，CA 也挂上了，
+# 可以走完整的 TLS 校验。不做这一步的表现：Pod 一直 ImagePullBackOff，
+# describe 里报 x509: certificate signed by unknown authority。

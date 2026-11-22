@@ -1,0 +1,22 @@
+# prod：独立桶 + 14 天保留 + 更大资源
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tempo
+spec:
+  template:
+    spec:
+      containers:
+        - name: tempo
+          env:
+            - name: TEMPO_S3_BUCKET
+              value: tempo-prod
+            - name: TEMPO_BLOCK_RETENTION
+              value: "336h"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi

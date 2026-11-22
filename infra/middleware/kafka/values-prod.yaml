@@ -1,0 +1,11 @@
+persistence:
+  size: 10Gi
+
+heapOpts: "-Xmx2g -Xms2g"
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: "2"
+    memory: 3Gi

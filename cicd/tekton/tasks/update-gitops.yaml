@@ -1,0 +1,149 @@
+# Tekton Task：流水线最后一步——把新镜像 tag 回写进 infra（GitOps）仓库
+#
+# 生产级要求对照（相对早期版本的四处硬化）：
+#   1) 凭据不落盘 —— token 只作为环境变量存在，经 GIT_ASKPASS 由 git 询问式获取，
+#      绝不写进 remote URL。老写法 sed 拼 x-access-token@URL 会把 token 存进
+#      .git/config（跟随 workspace 落盘），push 失败时 git 还会把带 token 的
+#      URL 打进日志——这正是官方 git-clone v1.7.1 修掉的"凭据泄漏"同款问题。
+#   2) 提交身份为机器人 —— tekton-ci[bot] + noreply 邮箱：审计一眼看出是机器，
+#      不暴露 PAT 主人的真实邮箱；消息带 [skip ci]，防止这次 bot push 触发
+#      infra 仓自己的 GitHub Actions（回环 + 白跑构建）。
+#   3) 并发保护 —— 两个 PipelineRun 同时推同一分支，后者 non-fast-forward 被拒；
+#      rebase 到新 tip 后重试，真冲突（都改了同一行）重试耗尽即失败等人工。
+#   4) 写后自检 —— yq 改完立刻验证结构，坏 values 不进仓库、不进 ArgoCD。
+#
+# 凭据 scope（least privilege，部署时核对）：
+#   gitops-token = GitHub fine-grained PAT，只授权 micro-bl--manifest 一个仓、
+#   仅 Contents: Read and write，其余仓库/权限全无；到期轮换。
+#   生产终态换 GitHub App installation token（短时效、可吊销、审计归属应用）。
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: update-gitops
+  namespace: platform-system
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+spec:
+  params:
+    - name: infra-repo-url
+      type: string
+    - name: infra-branch
+      type: string
+      default: main
+    - name: values-file
+      type: string
+      description: 相对 infra 仓库根的 values 文件
+    - name: tag
+      type: string
+  workspaces:
+    - name: gitops
+      description: emptyDir 即可，只在本 Task 的三个 step 之间共享
+  steps:
+    - name: clone
+      image: alpine/git:2.45.2
+      workingDir: $(workspaces.gitops.path)
+      env:
+        - name: GITOPS_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: gitops-token
+              key: token
+      computeResources:
+        requests: { cpu: 100m, memory: 64Mi }
+        limits: { cpu: 500m, memory: 128Mi }
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+
+        # GIT_ASKPASS：git 要凭据时不读文件，而是执行这个脚本问我们要。
+        # 脚本本身不含秘密（执行时才读环境变量），所以写在 workspace 里是安全的。
+        askpass="$(workspaces.gitops.path)/askpass.sh"
+        cat > "$askpass" <<'EOF'
+        #!/bin/sh
+        case "$1" in
+          Username*) printf '%s' "x-access-token" ;;
+          Password*) printf '%s' "${GITOPS_TOKEN}" ;;
+        esac
+        EOF
+        chmod 700 "$askpass"
+        export GIT_ASKPASS="$askpass"
+        # 没拿到凭据时不挂起等人输入，直接失败——CI 里挂起 = 流水线卡 2 小时超时
+        export GIT_TERMINAL_PROMPT=0
+
+        # remote URL 保持干净（无 token），clone 的凭据只经过内存里的环境变量
+        git clone -q --depth 1 --branch "$(params.infra-branch)" \
+          "$(params.infra-repo-url)" repo
+        cd repo
+        git config user.name  "tekton-ci[bot]"
+        git config user.email "tekton-ci@users.noreply.github.com"
+
+    - name: update
+      image: mikefarah/yq:4.44.3
+      workingDir: $(workspaces.gitops.path)/repo
+      env:
+        - name: TAG
+          value: $(params.tag)
+      computeResources:
+        requests: { cpu: 50m, memory: 64Mi }
+        limits: { cpu: 200m, memory: 128Mi }
+      script: |
+        #!/bin/sh
+        set -eu
+
+        f="$(params.values-file)"
+        [ -f "$f" ] || { echo "values file not found: $f" >&2; exit 1; }
+
+        # strenv 保证写入的是字符串而不是被 yq 推断类型
+        yq -i '.images.tag = strenv(TAG) | .images.pullPolicy = "IfNotPresent"' "$f"
+
+        # 写后自检：images 段缺失/结构漂移时当场失败，
+        # 不把只改了一半的 values 推进仓库让 ArgoCD 部署出意外
+        yq -e '.images.tag == strenv(TAG)' "$f" >/dev/null || {
+          echo "self-check failed: images.tag 未正确写入 $f" >&2; exit 1; }
+        echo "--- $f (images) ---"
+        yq '.images' "$f"
+
+    - name: push
+      image: alpine/git:2.45.2
+      workingDir: $(workspaces.gitops.path)/repo
+      env:
+        # push 是独立容器，凭据重新从 Secret 注入（同样只进环境变量）
+        - name: GITOPS_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: gitops-token
+              key: token
+      computeResources:
+        requests: { cpu: 100m, memory: 64Mi }
+        limits: { cpu: 500m, memory: 128Mi }
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+
+        askpass="$(workspaces.gitops.path)/askpass.sh"
+        [ -x "$askpass" ] || { echo "askpass 不存在（clone step 未成功？）" >&2; exit 1; }
+        export GIT_ASKPASS="$askpass"
+        export GIT_TERMINAL_PROMPT=0
+
+        if git diff --quiet -- "$(params.values-file)"; then
+          echo "tag 未变化，跳过提交（同一次提交重复触发时会出现）"
+          exit 0
+        fi
+
+        git add "$(params.values-file)"
+        # [skip ci]：阻止这次 bot push 触发 infra 仓自己的 CI（防回环）
+        git commit -q -m "chore(ci): bump images.tag to $(params.tag) [skip ci]"
+
+        # 并发保护：被 non-fast-forward 拒绝时 rebase 重试，最多 3 次。
+        # 两次运行都改同一行 = 真冲突，重试耗尽后失败并提示人工处理。
+        n=0
+        until git push -q origin "HEAD:$(params.infra-branch)"; do
+          n=$((n + 1))
+          if [ "$n" -ge 3 ]; then
+            echo "push 连续 3 次失败：可能是并发修改同一行，需要人工 rebase" >&2
+            exit 1
+          fi
+          echo "push 被拒绝（远端有新提交），rebase 后第 ${n} 次重试"
+          git pull -q --rebase origin "$(params.infra-branch)"
+        done
+        echo "pushed: $(git rev-parse --short HEAD)"

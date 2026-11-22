@@ -1,0 +1,198 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: fake-tiktok-slo
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+spec:
+  groups:
+    - name: slo-recording
+      interval: 1m
+      rules:
+        # ---------- 1) 进程可用性（5xx/panic 级） ----------
+        # 语义说明（Option A）：本项目业务响应一律 HTTP 200 + 业务码（pkg/httpx/response.go），
+        # 业务失败（密码错、DB 挂）在 status 上不可见，5xx 只剩 panic/框架级故障。
+        # 因此这个 SLO 的定位是"进程可用性"；真实业务可用性由下面三个业务 SLO 承担
+        #（登录/上传/转码的 result 三分类是错误信号的唯一载体）。
+        # 指标来自 collector 的 spanmetrics（calls_total），不是业务代码埋点：
+        #   维度：service_name（resource 属性）+ http_status_code / http_route / http_method（span 属性）
+        - record: slo:process:ratio5m
+          expr: |
+            1 - (
+              (
+                # 健康服务整段窗口没有 5xx → 分子是空向量，比值整条被丢掉，
+                # 1h 均值只剩"出过错的时段"，可用性被系统性拉低 → 无 5xx 时补 0
+                sum by (service_name) (rate(calls_total{http_status_code=~"5.."}[5m]))
+                or (sum by (service_name) (rate(calls_total[5m])) * 0)
+              )
+              /
+              # 无流量时分母为 0（0/0=NaN 会污染 1h 均值）→ 过滤成空向量，不产样本
+              (sum by (service_name) (rate(calls_total[5m])) > 0)
+            )
+
+        # ---------- 2) 上传成功率：分母排除 client_error ----------
+        - record: slo:upload:ratio5m
+          expr: |
+            (
+              # 窗口内一条成功都没有（全失败）→ 分子空向量，比值丢样本，失败被静默 → 补 0
+              sum(rate(video_upload_total{result="success"}[5m]))
+              or (sum(rate(video_upload_total{result=~"success|server_error"}[5m])) * 0)
+            )
+            /
+            # 无上传流量时分母为 0（0/0=NaN 污染 1h 均值与燃烧率）→ 过滤成空向量
+            (sum(rate(video_upload_total{result=~"success|server_error"}[5m])) > 0)
+
+        # ---------- 3) 转码成功率 ----------
+        - record: slo:transcode:ratio5m
+          expr: |
+            (
+              # 全部失败的窗口分子为空 → 比值丢样本（失败被静默）→ 补 0
+              sum(rate(video_transcode_total{result="success"}[5m]))
+              or (sum(rate(video_transcode_total[5m])) * 0)
+            )
+            /
+            # 无转码流量时分母为 0 → 过滤成空向量，不产样本
+            (sum(rate(video_transcode_total[5m])) > 0)
+
+        # ---------- 达成率窗口：1h ----------
+        # prod Prometheus 只保留 6h（临时测试集群），7d/30d 窗口覆盖不满：avg_over_time
+        # 不会报错，而是拿现有 ≤6h 数据算出一个"被标成 7d/30d"的值，看板无法分辨。
+        # 因此这里只保留 1h 达成率；生产环境把窗口改成 30d 并同步提高 retention 即可。
+        - record: slo:process:ratio1h
+          expr: avg_over_time(slo:process:ratio5m[1h])
+
+        - record: slo:upload:ratio1h
+          expr: avg_over_time(slo:upload:ratio5m[1h])
+
+        - record: slo:transcode:ratio1h
+          expr: avg_over_time(slo:transcode:ratio5m[1h])
+
+        # ---------- 4) 计数回刷账龄 P99（最终一致性延迟） ----------
+        - record: sli:counter:flush_lag_p99
+          expr: |
+            histogram_quantile(0.99,
+              sum by (le, column) (rate(counter_flush_lag_seconds_bucket[5m]))
+            )
+
+    - name: slo-alerting
+      interval: 1m
+      rules:
+        # ===== 仅上传成功率计算燃烧率（核心用户链路，连续请求型，错误预算随流量持续消耗） =====
+        # 目标 99% → 允许错误率 0.01
+        - alert: SLOUploadBudgetBurning
+          expr: |
+            (1 - avg_over_time(slo:upload:ratio5m[1h])) / 0.01 > 1
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "上传成功率预算持续消耗（1h 燃烧率 {{ $value | printf \"%.1f\" }}）"
+            description: "目标 99%，口径 success/(success+server_error)，client_error 不计入分母。"
+
+        - alert: SLOUploadBudgetFastBurn
+          expr: |
+            (1 - avg_over_time(slo:upload:ratio5m[5m])) / 0.01 > 14
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "上传成功率快速燃烧（5m 燃烧率 {{ $value | printf \"%.1f\" }}）"
+            description: "目标 99%，5m 窗口燃烧率 > 14。"
+
+        # ===== 进程可用性：普通阈值告警（5xx 只剩 panic/框架级故障，低频离散事件，
+        #       燃烧率在低流量下无意义；业务失败由业务指标阈值告警承担） =====
+        # 任何 5xx 都是代码缺陷，出现即告警：10m 窗口内有 5xx 且持续 5m
+        - alert: Process5xxDetected
+          expr: |
+            sum by (service_name) (increase(calls_total{http_status_code=~"5.."}[10m])) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.service_name }} 进程出现 5xx（panic/框架级故障）"
+            description: "业务失败走 200 + 业务码，5xx 只可能是 panic 或框架级故障，每一条都是代码缺陷。"
+
+        # 5xx 风暴：5m 错误率 > 10%，大面积 panic
+        - alert: Process5xxStorm
+          expr: |
+            sum by (service_name) (rate(calls_total{http_status_code=~"5.."}[5m]))
+            /
+            sum by (service_name) (rate(calls_total[5m]))
+            > 0.1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.service_name }} 5xx 错误率超过 10%（当前 {{ $value | humanizePercentage }}）"
+            description: "5m 窗口 5xx 占比 > 10%，大概率是 panic 风暴，查服务日志。"
+
+        # ===== 转码：普通阈值告警（异步批处理，失败成批出现——坏源文件、
+        #       ffmpeg 环境问题，按比率阈值比燃烧率更贴切） =====
+        # 失败率 > 10% 持续 15m
+        - alert: TranscodeFailureRateHigh
+          expr: |
+            1 - (
+              (
+                # 窗口内零成功（全失败）→ 分子空向量，1 - 空 = 空，critical 就静默了 → 补 0
+                sum(rate(video_transcode_total{result="success"}[15m]))
+                or (sum(rate(video_transcode_total[15m])) * 0)
+              )
+              /
+              (sum(rate(video_transcode_total[15m])) > 0)
+            ) > 0.1
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "转码失败率超过 10%（当前 {{ $value | humanizePercentage }}）"
+            description: "15m 窗口失败率 > 10%，留意是否为成批损坏源文件导致。"
+
+        # 失败率 > 30% 持续 5m：转码链路本身故障（ffmpeg/存储/Kafka），不是个别坏文件
+        - alert: TranscodeFailureSpike
+          expr: |
+            1 - (
+              (
+                # 零成功窗口分子为空 → 空向量导致告警不触发 → 补 0（同上）
+                sum(rate(video_transcode_total{result="success"}[5m]))
+                or (sum(rate(video_transcode_total[5m])) * 0)
+              )
+              /
+              (sum(rate(video_transcode_total[5m])) > 0)
+            ) > 0.3
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "转码失败率超过 30%（当前 {{ $value | humanizePercentage }}）"
+            description: "5m 窗口失败率 > 30%，大概率是转码链路本身故障，不是个别坏文件。"
+
+        # ===== 监控失联：SLO 告警的前提是指标还在。rate() 无数据时返回空，
+        #       燃烧率/阈值规则全部安静得像一切正常——必须单独兜底 =====
+        - alert: MetricsAbsent
+          expr: absent_over_time(calls_total[5m]) == 1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "collector 指标断流超过 5 分钟"
+            description: "calls_total 指标（spanmetrics）消失，otel-collector 或抓取链路故障——此时所有 SLO 告警都是盲的。"
+
+        # ===== 计数新鲜度：阈值型 SLI，P99 超过 10s 即违约 =====
+        - alert: SLOCounterFreshnessBreach
+          expr: max(sli:counter:flush_lag_p99) > 10
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "计数回刷账龄 P99 超过 10s（当前 {{ $value | printf \"%.1f\" }}s）"
+            description: "flush 周期 5s，超过两个周期即视为最终一致性违约。"
+
+        - alert: SLOCounterFreshnessWarning
+          expr: max(sli:counter:flush_lag_p99) > 5
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "计数回刷账龄 P99 超过 5s（当前 {{ $value | printf \"%.1f\" }}s）"
+            description: "已超过一个 flush 周期，检查 Kafka 消费延迟与 DB 写入耗时。"

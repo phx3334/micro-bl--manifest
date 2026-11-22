@@ -1,0 +1,111 @@
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: fake-tiktok-middleware
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+spec:
+  groups:
+    - name: middleware-alerting
+      interval: 1m
+      rules:
+        # 连接使用率 = 当前连接 / max_connections。
+        # 到 80% 时连接池余量已经不够扛一次突发，且 MySQL 会开始拒绝新连接，
+        # 表现为业务侧大量 "too many connections"（这个错误在 5xx 指标里只看到一个计数，看不出根因）。
+        - alert: MySQLConnectionsHigh
+          expr: |
+            mysql_global_status_threads_connected
+            /
+            mysql_global_variables_max_connections
+            > 0.8
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "MySQL 连接数使用率超过 80%（当前 {{ $value | humanizePercentage }}）"
+            description: "检查应用连接池上限与泄漏（gorm SetMaxOpenConns）、以及是否有长事务占用连接。"
+
+        # evicted_keys 增长说明内存上限已经装不下工作集。
+        # 对业务的影响是静默的：点赞判重 SET、视频热度 ZSet 被驱逐后，
+        # 接口依然 200，但计数会重复加/丢失，热度排序会跳变。
+        - alert: RedisEvicted
+          expr: rate(redis_evicted_keys_total[5m]) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Redis 正在驱逐键（{{ $value | printf \"%.2f\" }}/s）"
+            description: "内存已达上限。点赞判重与热度 ZSet 被驱逐会导致计数静默算错，需扩容或调整淘汰策略。"
+
+        # lag = 生产端 offset - 消费端已提交 offset。
+        # 10000 条是演示环境的量级阈值：正常稳态 lag 在两位数，超过一万
+        # 说明 worker 消费速度跟不上（或 KEDA 没有及时扩容）。
+        - alert: KafkaConsumerLagHigh
+          expr: |
+            sum by (consumergroup) (kafka_consumergroup_lag) > 10000
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "消费组 {{ $labels.consumergroup }} 积压超过 10000 条"
+            description: "转码/计数回刷延迟会随之拉长。检查 worker 副本数（KEDA 是否扩容）、单条消息处理耗时与下游依赖。"
+
+        # 积压持续放大（15m 内还在涨）说明消费侧已经停滞，不只是慢
+        - alert: KafkaConsumerLagGrowing
+          expr: |
+            sum by (consumergroup) (kafka_consumergroup_lag) > 10000
+            and
+            deriv(sum by (consumergroup) (kafka_consumergroup_lag)[15m:1m]) > 0
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: "消费组 {{ $labels.consumergroup }} 积压持续增长"
+            description: "lag 高于阈值且 15m 内仍单调上升，说明消费者已经停止推进而非单纯变慢，查 worker 日志与 Kafka 连通性。"
+
+        # Kafka 磁盘：分区数据+索引+日志段打满后 broker 进入写入拒绝（PRODUCER_NOT_ALLOWED /
+        # LOG_DIR_FAILURE）。与 MinIO 同理：
+        # 从 85% 到 100% 期间业务完全正常，打满后不可自愈，只能扩容+迁移数据。
+        # 用 kubelet 的 PVC 级用量（kube-prometheus-stack 自带采集），比 node-exporter
+        # 按挂载点匹配更准——直接命中文案卷，不依赖节点挂载路径命名。
+        - alert: KafkaDiskCapacityLow
+          expr: |
+            kubelet_volume_stats_available_bytes{namespace="middleware",persistentvolumeclaim=~"data-kafka-.*"}
+            /
+            kubelet_volume_stats_capacity_bytes{namespace="middleware",persistentvolumeclaim=~"data-kafka-.*"}
+            < 0.2
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Kafka broker 磁盘可用低于 20%（PVC {{ $labels.persistentvolumeclaim }}，当前 {{ $value | humanizePercentage }}）"
+            description: "Kafka 磁盘打满后写入被拒、可能掉副本，且不可自愈。清理过期 topic 数据或扩容 PVC，检查 retention 配置与流量增长。"
+
+        # MinIO：容量类问题不可自愈——磁盘从 85% 到 100% 期间业务完全正常，
+        # 等上传/转码 5xx 才发现时，恢复需要扩容+迁移数据，窗口从分钟级变小时级。
+        # 生产对象存储的告警基线抓的就是这两个量（不是请求错误率）。
+        - alert: MinioCapacityLow
+          expr: |
+            minio_cluster_capacity_usable_free_bytes
+            /
+            minio_cluster_capacity_usable_total_bytes
+            < 0.2
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "MinIO 可用容量低于 20%（当前 {{ $value | humanizePercentage }}）"
+            description: "容量打满后上传/转码全部失败且不可自愈。清理过期对象或扩容，检查是否有悬挂对象未清理。"
+
+        # 单机 demo：节点离线 = 整个存储不可用（业务 5xx 会同时响起，这条是根因提示）
+        # 多副本 prod：离线 1 台仍在降级运行，业务指标完全正常，这条是唯一能看见它的信号
+        - alert: MinioNodesOffline
+          expr: minio_cluster_nodes_offline_total > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "MinIO 有 {{ $value }} 个节点离线"
+            description: "单机=存储已不可用；多副本=降级运行中，剩余容量与写入仲裁（write quorum）已受影响。"

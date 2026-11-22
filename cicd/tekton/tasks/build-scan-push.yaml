@@ -1,0 +1,189 @@
+
+# 链路：BuildKit构建 → 输出本地image.tar → Trivy漏洞扫描 → 扫描通过Skopeo推Harbor
+# TLS：Harbor 证书由 cert-manager 内部 CA 签发；BuildKit 与 Skopeo 都挂载
+# harbor-tls 里的 ca.crt 做完整校验
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: build-scan-push
+  namespace: platform-system
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+spec:
+  params:
+    - name: image
+      type: string
+      description: 完整镜像引用，如 harbor:30003/fake-tiktok/fake_tiktok-user:<sha>
+    - name: context
+      type: string
+      description: 相对仓库根的构建上下文（Go 服务用 "server"，前端用 "web"）
+    - name: dockerfile
+      type: string
+      description: 相对仓库根的 Dockerfile 路径（如 server/Dockerfile、web/Dockerfile）
+    - name: target
+      type: string
+      default: ""
+      description: 多阶段 Dockerfile 的目标 stage；空表示用最后一个 stage
+    - name: cache-ref
+      type: string
+      default: ""
+      description: >-
+        BuildKit 跨流水线缓存镜像引用（如 harbor:30003/fake-tiktok/buildcache-go:main）；
+        空表示不启用缓存。启用后 buildctl 从该引用 import、构建完成后 export 回去。
+  workspaces:
+    - name: source
+      description: 源码Workspace，存放Git拉取下来的业务代码
+    - name: image
+      description: 临时存放 image.tar 与构建缓存，emptyDir 即可，三个步骤共享该文件
+  steps:
+    - name: build
+      # 镜像版本固定锁定；上线前建议 docker manifest inspect 校验tag可用性
+      # BuildKit官方提供-rootless变体，支持无root构建，提升安全基线
+      image: moby/buildkit:v0.35.0-rootless
+      workingDir: $(workspaces.source.path)
+      env:
+        # 读写 Harbor 缓存镜像需要仓库凭证，和后续 push 步骤共用一套 harbor 凭据
+        - name: DOCKER_CONFIG
+          value: /home/user/.docker
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        # 关闭seccomp与apparmor限制，是--oci-worker-no-process-sandbox的硬性前置条件，不可省略
+        seccompProfile:
+          type: Unconfined
+        appArmorProfile:
+          type: Unconfined
+      computeResources:
+        requests:
+          cpu: 500m
+          memory: 1Gi
+        limits:
+          cpu: "2"
+          memory: 4Gi
+      volumeMounts:
+        # 挂载独立emptyDir存放buildkit运行状态，规避镜像内置VOLUME在部分节点不可写的问题
+        - name: buildkit-state
+          mountPath: /home/user/.local/share/buildkit
+        # cert-manager 签发的内部 CA（harbor-tls Secret 里的 ca.crt）
+        - name: harbor-ca
+          mountPath: /certs
+        # 挂载harbor密钥到rootless用户家目录，避免tekton默认/home权限不一致导致认证失败
+        - name: harbor-push
+          mountPath: /home/user/.docker/config.json
+          subPath: .dockerconfigjson
+      script: |
+        #!/bin/sh
+        set -eu
+
+        # 处理多阶段target参数：为空时不传递参数，防止buildctl接收空串报错
+        target_opt=""
+        if [ -n "$(params.target)" ]; then
+          target_opt="--opt target=$(params.target)"
+        fi
+
+        # 远程缓存配置：对接Harbor缓存镜像
+        # mode=max：缓存所有构建阶段，Go mod等中间层可以复用，加速构建
+        # ignore-error=true：缓存拉取/推送失败仅降级为无缓存构建，不阻断CI流水线
+        cache_flags=""
+        if [ -n "$(params.cache-ref)" ]; then
+          cache_flags="--import-cache type=registry,ref=$(params.cache-ref) --export-cache type=registry,ref=$(params.cache-ref),mode=max,ignore-error=true"
+        fi
+
+        # Harbor 用内部 CA 签发证书：把 CA 写进 buildkitd 配置，
+        # 让缓存 import/export 走完整 TLS 校验（不再用 insecure=true）。
+        # registry_host 从镜像引用里取第一段（IP:30003）。
+        registry_host=$(printf '%s' "$(params.image)" | cut -d/ -f1)
+        cat > /tmp/buildkitd.toml <<EOF
+        [registry."${registry_host}"]
+          ca = ["/certs/ca.crt"]
+        EOF
+        export BUILDKITD_FLAGS="--oci-worker-no-process-sandbox --config /tmp/buildkitd.toml"
+
+        # 拆分Dockerfile路径：buildctl需要分开指定dockerfile目录和文件名
+        dockerfile_dir=$(dirname "$(params.dockerfile)")
+        dockerfile_name=$(basename "$(params.dockerfile)")
+
+
+        buildctl-daemonless.sh build \
+          --frontend dockerfile.v0 \
+          --local context="$(workspaces.source.path)/$(params.context)" \
+          --local dockerfile="$(workspaces.source.path)/${dockerfile_dir}" \
+          --opt filename="${dockerfile_name}" \
+          ${target_opt} \
+          ${cache_flags} \
+          --output type=docker,dest="$(workspaces.image.path)/image.tar",name="$(params.image)" \
+          --progress plain
+
+    - name: scan
+      # Trivy：本地扫描tar镜像，不提前推仓库，实现安全左移门禁
+      image: aquasec/trivy:0.57.1
+      computeResources:
+        requests:
+          cpu: 200m
+          memory: 512Mi
+        limits:
+          cpu: "1"
+          memory: 2Gi
+      # 使用command+args形式，不依赖镜像内置shell，更稳定
+      command: ["trivy"]
+      args:
+        - image
+        - --input
+        - $(workspaces.image.path)/image.tar
+        # 只扫漏洞：secret 扫描由独立的凭据检查负责，避免把示例值误判为门禁失败
+        - --scanners
+        - vuln
+        - --severity
+        - HIGH,CRITICAL
+        # --ignore-unfixed：没有官方修复包的漏洞放行，防止门禁长期阻塞发布
+        - --ignore-unfixed
+        - --exit-code
+        - "1"
+        - --timeout
+        - 15m
+        - --no-progress
+        - --cache-dir
+        - $(workspaces.image.path)/trivy-cache
+
+    - name: push
+      # Skopeo：镜像搬运工具，读取本地tar包推送到Harbor，无需docker daemon
+      image: quay.io/skopeo/stable:v1.16.1
+      computeResources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+      command: ["skopeo"]
+      args:
+        - copy
+        # Harbor 证书由内部 CA 签发，用 --dest-cert-dir 指定 ca.crt
+        - --dest-cert-dir=/certs
+        - docker-archive:$(workspaces.image.path)/image.tar
+        - docker://$(params.image)
+      env:
+        # Skopeo读取docker config json获取harbor账号密码
+        - name: DOCKER_CONFIG
+          value: /tekton/home/.docker
+      volumeMounts:
+        # 与 build step 同一份 CA；Secret 由 cert-manager 自动续期
+        - name: harbor-ca
+          mountPath: /certs
+        - name: harbor-push
+          mountPath: /tekton/home/.docker/config.json
+          subPath: .dockerconfigjson
+  volumes:
+    - name: harbor-push
+      secret:
+        secretName: harbor-push
+    # cert-manager 签发的 Harbor 证书 Secret：只取 ca.crt，给 BuildKit/Skopeo 做校验
+    - name: harbor-ca
+      secret:
+        secretName: harbor-tls
+        items:
+          - key: ca.crt
+            path: ca.crt
+    # emptyDir存放BuildKit运行状态，生命周期跟随单次TaskRun
+    - name: buildkit-state
+      emptyDir: {}

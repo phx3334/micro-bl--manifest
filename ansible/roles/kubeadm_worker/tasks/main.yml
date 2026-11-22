@@ -1,0 +1,10 @@
+# 工作节点：用第一个 master 生成的 token 加入集群
+---
+- name: 加入集群
+  command: >-
+    kubeadm join {{ apiserver_endpoint }}
+    --token {{ hostvars[groups['masters'][0]].join_token }}
+    --discovery-token-ca-cert-hash sha256:{{ hostvars[groups['masters'][0]].join_ca_hash }}
+    --cri-socket unix:///run/containerd/containerd.sock
+  args:
+    creates: /etc/kubernetes/kubelet.conf

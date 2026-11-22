@@ -1,0 +1,204 @@
+# 把全集群唯一的根 CA 从 cert-manager 命名空间分发到「需要信任它」的命名空间。
+#
+# 为什么需要这一步：根证书是公开材料（不是私钥），但 K8s 的 Secret/ConfigMap
+# 都是命名空间级的，别的命名空间挂不到 cert-manager 里的那个 Secret，必须复制一份。
+# 用 ConfigMap 而不是 Secret：内容是公开证书，没必要加密，也方便 ServiceMonitor 直接引用。
+#
+# 消费方：
+#   fake-tiktok   → 业务 Pod 挂 /certs/internal-ca.crt，验 mysql/redis/kafka/minio
+#   middleware    → redis_exporter 挂同一份（rediss:// 验根，见 middleware/redis values）
+#   observability → Tempo 挂同一份（S3 走 https）、ServiceMonitor 用 tlsConfig.ca 引用、
+#                   kafka-exporter 验 kafka.middleware:9092（应用层单向 TLS）
+#
+# 轮换：根 CA 10 年才换一次；CronJob 每 30 分钟对账，换根后下一次循环自动更新 ConfigMap，
+# 消费方重启后生效（业务 Pod 本身不热加载证书文件）。
+#
+# 首次部署：根 CA Ready 后建议手动触发一次，别等下一个整半点：
+#   kubectl -n cert-manager create job --from=cronjob/internal-ca-distributor ca-distribute-once
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: internal-ca-distributor
+  namespace: cert-manager
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+---
+# 源：只允许读根 CA 这一个 Secret
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: internal-ca-distributor
+  namespace: cert-manager
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["fake-tiktok-ca"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: internal-ca-distributor
+  namespace: cert-manager
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: internal-ca-distributor
+subjects:
+  - kind: ServiceAccount
+    name: internal-ca-distributor
+    namespace: cert-manager
+---
+# 目标 fake-tiktok：只允许写 internal-ca 这一个 ConfigMap
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: internal-ca-writer
+  namespace: fake-tiktok
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["internal-ca"]
+    verbs: ["get", "patch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: internal-ca-writer
+  namespace: fake-tiktok
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: internal-ca-writer
+subjects:
+  - kind: ServiceAccount
+    name: internal-ca-distributor
+    namespace: cert-manager
+---
+# 目标 observability：同上
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: internal-ca-writer
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["internal-ca"]
+    verbs: ["get", "patch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: internal-ca-writer
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: internal-ca-writer
+subjects:
+  - kind: ServiceAccount
+    name: internal-ca-distributor
+    namespace: cert-manager
+---
+# 目标 middleware：同上（redis_exporter 走 rediss:// 必须信任内部根）
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: internal-ca-writer
+  namespace: middleware
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["internal-ca"]
+    verbs: ["get", "patch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: internal-ca-writer
+  namespace: middleware
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: internal-ca-writer
+subjects:
+  - kind: ServiceAccount
+    name: internal-ca-distributor
+    namespace: cert-manager
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: internal-ca-distributor
+  namespace: cert-manager
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+spec:
+  schedule: "*/30 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 60
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          serviceAccountName: internal-ca-distributor
+          restartPolicy: OnFailure
+          containers:
+            - name: distribute
+              image: alpine/k8s:1.32.4
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  work=/tmp/internal-ca
+                  rm -rf "$work" && mkdir -p "$work"
+
+                  # 根 CA 还没签发（cert-manager 异步 reconcile）就跳过本轮
+                  if ! kubectl -n cert-manager get secret fake-tiktok-ca >/dev/null 2>&1; then
+                    echo "fake-tiktok-ca 尚未生成，跳过本轮"
+                    exit 0
+                  fi
+                  kubectl -n cert-manager get secret fake-tiktok-ca \
+                    -o jsonpath='{.data.ca\.crt}' | base64 -d > "$work/ca.crt"
+
+                  for ns in fake-tiktok middleware observability; do
+                    kubectl -n "$ns" create configmap internal-ca \
+                      --from-file=ca.crt="$work/ca.crt" \
+                      --dry-run=client -o yaml | kubectl apply -f -
+                  done
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  cpu: 100m
+                  memory: 128Mi

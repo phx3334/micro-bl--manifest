@@ -1,0 +1,61 @@
+revision: ""
+
+# 限制 istiod 本身的 CPU / 内存，防止控制面 OOM、抢占节点资源
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# istiod、sidecar-injector 等 Istio 组件日志输出为 JSON 格式，方便 OTel Collector filelog 采集进 Loki
+global:
+  logAsJson: true
+
+# 头采 30%
+pilot:
+  traceSampling: 30
+
+
+# meshConfig：网格全局配置，作用于所有自动注入的 Sidecar（Envoy）
+meshConfig:
+  # 开启Envoy代理层链路追踪总开关：Envoy会自动生成进出Pod请求的sidecar span，
+  # 可以看到代理排队、mTLS握手、网格策略拦截、Envoy重试等业务代码感知不到的环节耗时；
+  # 配合下方OTLP配置，span推送给otel-collector，最终存入Tempo，和业务OTel SDK埋点的span拼接成完整链路
+  enableTracing: true
+  # 注册OTLP gRPC追踪后端，Envoy生成的追踪数据推送到集群内的OTel Collector
+  extensionProviders:
+    - name: otel-tracing
+      opentelemetry:
+        service: otel-collector.observability.svc.cluster.local
+        port: 4317
+  defaultProviders:
+    tracing:
+      - otel-tracing
+
+  # sidecar访问日志输出JSON到标准输出，由OTel Collector filelog采集进Loki；
+  # demo环境全量日志方便排障，生产建议配置采样，避免日志量爆炸
+  accessLogFile: /dev/stdout
+  accessLogEncoding: JSON
+
+  defaultConfig:
+    # 等Envoy Sidecar完全就绪之后，再启动业务容器；解决滚动更新、冷启动时Pod Ready但代理未就绪导致的502
+    holdApplicationUntilProxyStarts: true
+
+    # proxy 级头采兜底，与上面 pilot.traceSampling 同值（量纲 0~100，30=30%）
+    tracing:
+      sampling: 30
+
+    # 限制所有被自动注入的 Envoy sidecar 容器资源配额；业务Pod越多，sidecar总资源开销越大
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+  # 关闭指标合并：Prometheus抓取 :15020/stats/prometheus 时，Envoy仅返回自身 istio_* 网格指标；
+  # 本项目业务采用 OTLP push 上报指标，没有业务侧 /metrics 拉取端点，无需拼接业务指标，关闭消除无效本地拉取请求。
+  enablePrometheusMerge: false

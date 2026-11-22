@@ -1,0 +1,82 @@
+# Istio 1.30.6：base（CRD）→ istiod（信任锚来自 cert-manager 的 cacerts）→ gateway
+# 必须在 ArgoCD 之前装：platform-infra Application 会 apply Gateway/VirtualService 等 CR。
+---
+- name: 添加 Istio Helm 仓库
+  command: helm repo add --force-update istio {{ helm_repos.istio }}
+  changed_when: false
+
+- name: 更新 Istio 仓库索引
+  command: helm repo update istio
+  changed_when: false
+
+- name: 复制 Istio values
+  copy:
+    src: "{{ infra_repo }}/infra/istio/{{ item }}"
+    dest: "{{ ansible_workdir }}/{{ item }}"
+    mode: "0644"
+  loop:
+    - values-base.yaml
+    - values-istiod.yaml
+    - values-istiod-prod.yaml
+    - values-gateway.yaml
+    - values-gateway-prod.yaml
+
+- name: 安装 istio-base（CRD / 集群级 RBAC）
+  command:
+    - helm
+    - upgrade
+    - --install
+    - istio-base
+    - istio/base
+    - --namespace
+    - istio-system
+    - --create-namespace
+    - --version
+    - "{{ chart_versions.istio }}"
+    - --values
+    - "{{ ansible_workdir }}/values-base.yaml"
+    - --wait
+    - --timeout
+    - 5m
+
+- name: 安装 istiod
+  command:
+    - helm
+    - upgrade
+    - --install
+    - istiod
+    - istio/istiod
+    - --namespace
+    - istio-system
+    - --version
+    - "{{ chart_versions.istio }}"
+    - --values
+    - "{{ ansible_workdir }}/values-istiod.yaml"
+    - --values
+    - "{{ ansible_workdir }}/values-istiod-prod.yaml"
+    - --wait
+    - --timeout
+    - 10m
+
+- name: 安装 ingressgateway（NodePort 30080）
+  command:
+    - helm
+    - upgrade
+    - --install
+    - istio-ingress
+    - istio/gateway
+    - --namespace
+    - istio-system
+    - --version
+    - "{{ chart_versions.istio }}"
+    - --values
+    - "{{ ansible_workdir }}/values-gateway.yaml"
+    - --values
+    - "{{ ansible_workdir }}/values-gateway-prod.yaml"
+    - --wait
+    - --timeout
+    - 5m
+
+- name: 等待 ingressgateway 就绪
+  command: kubectl -n istio-system rollout status deployment/istio-ingress --timeout=300s
+  changed_when: false

@@ -1,0 +1,53 @@
+# Loki 单片模式（monolithic）：单进程跑全部角色，ring 用 inmemory，数据落本地文件系统。
+#
+# 数据流：collector agent ──HTTP push──▶ 本进程 3100 ──▶ chunks + index 落 PVC
+#
+# 一个环境相关的值不写死，由 Deployment 的 env 注入：
+#   LOKI_RETENTION  保留期（compactor 按期清理过期日志）
+#
+# 注意：Loki 配置文件原生支持 ${VAR} 和 ${VAR:-默认} 展开，不需要额外的 expand-env 开关。
+
+auth_enabled: false      # 单租户 demo；开多租户必须打开，否则单租户模式下写入会带假 tenant
+
+server:
+  http_listen_port: 3100
+
+common:
+  # replication_factor=1 + inmemory ring：单节点的两个配套设置
+  # 多副本时必须改成 memberlist/kvstore，否则按 1 副本哈希会丢数据
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+  path_prefix: /var/loki
+
+schema_config:
+  configs:
+    - from: "2024-01-01"
+      store: tsdb            # Loki 3.x 默认索引方案
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h          # 按天切索引文件，和下面的保留期清理配套
+
+storage_config:
+  filesystem:
+    directory: /var/loki/storage
+
+limits_config:
+  # 采集端日志流量守卫：超出会 429，防止单实例被日志洪峰打挂
+  ingestion_rate_mb: 16
+  ingestion_burst_size_mb: 32
+  # Loki 3.x 没有 per_stream_rate_limit_disable 开关；
+  # 需要放宽时显式调整 per_stream_rate_limit / per_stream_rate_limit_burst，
+  # 不要写不存在的字段，否则进程会因 unknown field 启动失败。
+  retention_period: ${LOKI_RETENTION:-168h}
+
+compactor:
+  working_directory: /var/loki/compactor
+  retention_enabled: true   # retention_period 只是声明，真正删数据靠 compactor
+
+# 查询时单条日志默认限 5000 行，查日志体（不是查 count）时会用到
+querier:
+  max_entries_limit_per_query: 10000

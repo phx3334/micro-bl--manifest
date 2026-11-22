@@ -1,0 +1,24 @@
+# 由 ansible 渲染，不要手工改（改 group_vars 后重跑 playbook）
+version = 2
+
+# workers 上 root 指向 80G 数据盘（/data/containerd），避免镜像撑爆系统盘
+root = "{{ containerd_root }}"
+state = "{{ containerd_state }}"
+
+[grpc]
+  address = "/run/containerd/containerd.sock"
+
+[plugins."io.containerd.grpc.v1.cri"]
+  # kubeadm 的 imageRepository 只管控制面镜像，pause 镜像由 containerd 决定
+  sandbox_image = "{{ sandbox_image }}"
+
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+  runtime_type = "io.containerd.runc.v2"
+
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+  # 与 kubelet 的 cgroupDriver 保持一致
+  SystemdCgroup = true
+
+[plugins."io.containerd.grpc.v1.cri".registry]
+  # /etc/containerd/certs.d/<registry-host>/hosts.toml + ca.crt
+  config_path = "/etc/containerd/certs.d"

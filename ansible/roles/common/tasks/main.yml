@@ -1,0 +1,93 @@
+# 所有节点的基础初始化：主机名 / hosts / swap / 内核参数 / 基础包 / 数据盘
+---
+- name: 设置主机名（与 kubeadm 节点名一致）
+  hostname:
+    name: "{{ inventory_hostname }}"
+
+- name: 写入 /etc/hosts（集群内按主机名互访）
+  template:
+    src: hosts.j2
+    dest: /etc/hosts
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: 关闭 swap（当前会话）
+  command: swapoff -a
+  when: ansible_swaptotal_mb | int > 0
+  changed_when: ansible_swaptotal_mb | int > 0
+
+- name: 注释 /etc/fstab 里的 swap（重启后保持关闭）
+  replace:
+    path: /etc/fstab
+    regexp: '^([^#].*\sswap\s.*)$'
+    replace: '# \1'
+
+- name: 加载内核模块
+  modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - overlay
+    - br_netfilter
+
+- name: 持久化内核模块
+  copy:
+    dest: /etc/modules-load.d/k8s.conf
+    content: |
+      overlay
+      br_netfilter
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: 写入 Kubernetes 需要的 sysctl
+  copy:
+    dest: /etc/sysctl.d/99-kubernetes.conf
+    content: |
+      net.bridge.bridge-nf-call-iptables = 1
+      net.bridge.bridge-nf-call-ip6tables = 1
+      net.ipv4.ip_forward = 1
+      # sidecar / 大量 Service 场景下的 inotify 上限
+      fs.inotify.max_user_instances = 8192
+      fs.inotify.max_user_watches = 524288
+    owner: root
+    group: root
+    mode: "0644"
+  register: k8s_sysctl_file
+
+- name: 应用 sysctl
+  command: sysctl --system
+  when: k8s_sysctl_file.changed
+  changed_when: true
+
+- name: 安装基础软件包（kubeadm preflight 依赖 conntrack/socat 等）
+  apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+      - jq
+      - unzip
+      - bash-completion
+      - conntrack
+      - socat
+      - ipset
+      - iptables
+      - ethtool
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+# 只有 worker 有 80G 数据盘（terraform/instances.tf 的 data_disks）
+- name: 工作节点挂载数据盘
+  include_tasks: data_disk.yml
+  when: inventory_hostname in groups['workers']
+
+- name: 创建 local-path 落盘目录
+  file:
+    path: "{{ local_path_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0777"

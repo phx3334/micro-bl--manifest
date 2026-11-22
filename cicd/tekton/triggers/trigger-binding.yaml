@@ -1,0 +1,20 @@
+# GitHub push 事件 → 流水线参数
+# 字段名与 GitHub webhook 的真实 payload 对应：
+#   body.repository.clone_url  仓库地址（GitHub 原生 push 事件的标准字段）
+#   body.after                 本次 push 的 commit SHA
+#   body.ref                   如 refs/heads/main
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: github-push
+  namespace: platform-system
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+spec:
+  params:
+    - name: repo-url
+      value: $(body.repository.clone_url)
+    - name: revision
+      value: $(body.after)
+    - name: branch
+      value: $(body.ref)

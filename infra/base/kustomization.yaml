@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# 特意不设 namespace 转换器：Gateway 必须落在 istiod 的配置命名空间（istio-system），
+# VirtualService 落在业务命名空间（fake-tiktok）。一旦被统一改写，Gateway 不会被 ingressgateway 选中。
+resources:
+  - namespaces.yaml
+  # 默认 SA 收紧（关闭 token 自动挂载），见 rbac/ 文件头说明
+  - rbac/default-serviceaccounts.yaml
+  - istio/gateway.yaml
+  - istio/virtualservice.yaml
+  - istio/destination-rule.yaml
+  - istio/peer-authentication.yaml
+  - istio/envoy-filter-ratelimit.yaml
+
+# AuthorizationPolicy / NetworkPolicy 后续按需补充：
+# 直接写 deny-all 容易把业务整断；先用 Istio L7 治理 + 命名空间边界兜底，
+# 需要 L3/L4 收口时再加 Cilium NetworkPolicy。

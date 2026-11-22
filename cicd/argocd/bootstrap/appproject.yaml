@@ -1,0 +1,43 @@
+# 项目级权限白名单：把 Argo CD 从默认项目（任意仓库 → 任意命名空间）收窄到
+# "只允许同步这一个仓库、只允许落到这几个命名空间"。
+#
+# 应用顺序（必须在 root-application 之前，否则子 Application 会因项目不存在而报错）：
+#   kubectl apply -f cicd/argocd/bootstrap/appproject.yaml
+#   kubectl apply -f cicd/argocd/bootstrap/root-application-prod.yaml
+# 注意：AppProject 只约束 Argo CD 能做什么，不等于 K8s RBAC；
+# 它限制的是"从哪个仓库、同步到哪"这个维度。
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: fake-tiktok
+  namespace: argocd
+spec:
+  description: fake-tiktok —— 仓库 / 目标命名空间 / 集群级资源三重白名单
+
+  # 只允许从 manifest 仓库拉取；换仓库时同步改这里和四个 Application
+  sourceRepositories:
+    - repoURL: https://github.com/phx3334/micro-bl--manifest.git
+
+  # 允许同步的目标命名空间（多一个都不行）
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: argocd          # root Application 创建子 Application
+    - server: https://kubernetes.default.svc
+      namespace: fake-tiktok     # 业务
+    - server: https://kubernetes.default.svc
+      namespace: middleware      # mysql / redis / kafka / minio
+    - server: https://kubernetes.default.svc
+      namespace: observability   # prometheus / tempo / loki / grafana / collector
+    - server: https://kubernetes.default.svc
+      namespace: platform-system # harbor / tekton
+    - server: https://kubernetes.default.svc
+      namespace: istio-system    # Gateway / PeerAuthentication
+
+  # 只放行两类集群级资源：命名空间本身 + cert-manager 的 ClusterIssuer。
+  # 其余 ClusterRole / ClusterRoleBinding / CRD 一律拒绝——需要时再显式加，
+  # 不加就会被 sync 拒绝（报错而不是静默放行）。
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: cert-manager.io
+      kind: ClusterIssuer

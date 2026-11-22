@@ -1,0 +1,19 @@
+# 网关 host：填你实际访问用的地址，这里就是云服务器的公网 IP。
+#
+# 必须与浏览器地址栏的主机部分一致：访问 http://1.2.3.4:30080 时，
+# 浏览器发出的 Host 是 "1.2.3.4:30080"，此处写 1.2.3.4 即可（端口由 Istio 自动匹配）。
+#
+# 没替换成真实 IP 会返回 404 NR（no route）——不是网络不通，是 Host 头对不上。
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: fake-tiktok-gateway
+  namespace: istio-system
+spec:
+  servers:
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - REPLACE_WITH_SERVER_IP

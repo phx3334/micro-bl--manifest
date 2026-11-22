@@ -1,0 +1,9 @@
+127.0.0.1 localhost
+127.0.1.1 {{ inventory_hostname }}
+
+{% for h in groups['masters'] %}
+{{ hostvars[h]['private_ip'] }} {{ h }}
+{% endfor %}
+{% for h in groups['workers'] %}
+{{ hostvars[h]['private_ip'] }} {{ h }}
+{% endfor %}

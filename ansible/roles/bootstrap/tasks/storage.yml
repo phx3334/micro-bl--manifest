@@ -1,0 +1,32 @@
+# local-path-provisioner：给全部 PVC 提供默认 StorageClass。
+# 落盘目录指向 /data/local-path（workers 上是 80G ESSD 数据盘）。
+---
+- name: 渲染 local-path 清单
+  template:
+    src: local-path-storage.yaml.j2
+    dest: "{{ ansible_workdir }}/local-path-storage.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: 部署 local-path-provisioner
+  command: kubectl apply -f {{ ansible_workdir }}/local-path-storage.yaml
+  register: local_path_apply
+  changed_when: "'created' in local_path_apply.stdout or 'configured' in local_path_apply.stdout"
+
+- name: 等待 local-path-provisioner 就绪
+  command: kubectl -n local-path-storage rollout status deployment/local-path-provisioner --timeout=300s
+  changed_when: false
+
+- name: 确认默认 StorageClass
+  shell: |
+    kubectl get storageclass local-path \
+      -o jsonpath='{.metadata.annotations.storageclass\.kubernetes\.io/is-default-class}'
+  register: default_sc
+  changed_when: false
+
+- name: 默认 StorageClass 必须为 true
+  assert:
+    that:
+      - default_sc.stdout == "true"
+    fail_msg: "local-path 未标记为默认 StorageClass，PVC 会一直 Pending"

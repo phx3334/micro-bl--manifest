@@ -1,0 +1,44 @@
+# Cilium：kubeadm init 之后立刻安装，节点才能从 NotReady 变 Ready。
+# values 文件从控制端仓库复制到远端，保证 chart 配置只有一份来源。
+---
+- name: 添加 Cilium Helm 仓库
+  command: helm repo add --force-update cilium {{ helm_repos.cilium }}
+  changed_when: false
+
+- name: 更新 Cilium 仓库索引
+  command: helm repo update cilium
+  changed_when: false
+
+- name: 复制 Cilium values 到远端
+  copy:
+    src: "{{ infra_repo }}/infra/cilium/{{ item }}"
+    dest: "{{ ansible_workdir }}/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - values.yaml
+    - values-prod.yaml
+
+- name: 安装 / 升级 Cilium
+  command:
+    - helm
+    - upgrade
+    - --install
+    - cilium
+    - cilium/cilium
+    - --namespace
+    - kube-system
+    - --version
+    - "{{ chart_versions.cilium }}"
+    - --values
+    - "{{ ansible_workdir }}/values.yaml"
+    - --values
+    - "{{ ansible_workdir }}/values-prod.yaml"
+    - --wait
+    - --timeout
+    - 10m
+
+- name: 等待 Cilium DaemonSet 就绪
+  command: kubectl -n kube-system rollout status daemonset/cilium --timeout=600s
+  changed_when: false

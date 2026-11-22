@@ -1,0 +1,25 @@
+meshConfig:
+  defaultConfig:
+    tracing:
+      sampling: 30     # 头采 30%（istio 量纲 0~100：30=30%，不是 0.3——0.3 是 0.3%）；base 同值，prod 覆盖显式声明
+
+# 反亲和：istiod 扩到 ≥2 副本时（HPA 触发）不要落在同一节点。
+# preferred软策略：节点资源不足允许同节点，不会导致调度失败
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app: istiod
+          topologyKey: kubernetes.io/hostname
+
+# istiod控制面资源
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi

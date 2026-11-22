@@ -1,0 +1,26 @@
+
+labels:
+  istio: ingressgateway
+
+service:
+  # 浏览器直连：单机/无 LB 的云集群里 LoadBalancer 会一直 pending，
+  # 用 NodePort 最省事（云服务器安全组要放行）
+  type: NodePort
+  # 注意：这里覆盖 ports 是整体替换（helm 列表不合并），会丢掉默认的
+  # status-port(15021) 与 https(443)。demo 走 HTTP 无 TLS、不抓网关自身状态端口，
+  # 影响可接受；以后要开 TLS 需把 https 端口一并补回。
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+      # 固定端口而不是让 K8s 随机分配
+      nodePort: 30080
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi

@@ -1,0 +1,38 @@
+# EventListener 的 sink 需要以 tekton-triggers-sa 身份创建 PipelineRun。
+# 只授 pipelineruns 的 create/get/list/watch：这是它唯一要做的事。
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tekton-triggers-create-pipelinerun
+  namespace: platform-system
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+rules:
+  - apiGroups: ["tekton.dev"]
+    resources: ["pipelineruns"]
+    verbs: ["create", "get", "list", "watch"]
+  # TriggerTemplate 渲染时需要读取 Pipeline/Task 的元信息
+  - apiGroups: ["tekton.dev"]
+    resources: ["pipelines", "tasks"]
+    verbs: ["get", "list", "watch"]
+  # GitHub interceptor 的 HMAC 校验需要 sink 读这个 Secret（只这一个，按名字限制）
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["github-webhook-secret"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-triggers-create-pipelinerun
+  namespace: platform-system
+  labels:
+    app.kubernetes.io/part-of: fake-tiktok
+subjects:
+  - kind: ServiceAccount
+    name: tekton-triggers-sa
+    namespace: platform-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tekton-triggers-create-pipelinerun

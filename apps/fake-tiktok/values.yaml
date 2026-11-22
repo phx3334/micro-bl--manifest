@@ -1,0 +1,162 @@
+images:
+  # 必须与 Harbor 的 externalURL、Harbor 证书 SAN、Tekton trigger-template
+  # 的 image-registry 逐字一致；Harbor 证书由 cert-manager 内部 CA 签发，
+  # 节点 containerd 需要信任该 CA（见 cicd/harbor/values.yaml 文末）
+  registry: REPLACE_WITH_SERVER_IP:30003/fake-tiktok
+  # 初始占位；Tekton 的 update-gitops 会回写为 commit SHA（不可变）+ IfNotPresent。
+  # values-prod 不再覆盖，保证生产始终按不可变 tag 拉取，避免节点上残留旧镜像。
+  tag: stable
+  pullPolicy: IfNotPresent
+  # harbor-pull 需手工创建在 fake-tiktok 命名空间（与 Tekton 的 harbor-push 分开：
+  # 一个只读、一个可推，凭据权限不同）：
+  #   kubectl -n fake-tiktok create secret docker-registry harbor-pull \
+  #     --docker-server=REPLACE_WITH_SERVER_IP:30003 \
+  #     --docker-username='robot$pull' --docker-password='<token>'
+  pullSecret: harbor-pull
+
+services:
+  user:
+    replicas: 1
+    httpPort: 8081
+    grpcPort: 9081
+    dbName: feed_user
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+  video:
+    replicas: 1
+    httpPort: 8082
+    grpcPort: 9082
+    dbName: feed_video
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+  interaction:
+    replicas: 1
+    httpPort: 8083
+    grpcPort: 9083
+    dbName: feed_interaction
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+worker:
+  replicas: 1
+  dbName: feed_video
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+web:
+  replicas: 1
+  port: 80
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+config:
+  # 进程监听与路由前缀（原先是模板里的硬编码，抽到 values 便于按环境调整）
+  server:
+    host: "0.0.0.0"
+    routerPrefix: "api/v1"
+  # 内部根 CA 的容器内路径；由 apps chart 把 internal-ca ConfigMap 挂到 /certs
+  tls:
+    caFile: /certs/internal-ca.crt
+  # 中间件统一装在 middleware 命名空间（见各中间件 README 的 helm -n middleware），
+  # 业务 Pod 在 fake-tiktok：跨命名空间短名不解析，必须写 <svc>.middleware
+  database:
+    host: mysql.middleware
+    port: 3306
+    user: phx
+    # 单向 TLS：只验服务端，客户端证书不参与（中间件出网格后的加密方式）
+    tlsEnabled: true
+  redis:
+    host: redis.middleware
+    port: 6379
+    db: 0
+    keyPrefix: feedsystem:v1
+    # 哨兵：非空时客户端走 FailoverClient（主从自动切换）；空则直连 host:port
+    sentinelAddrs: ""
+    masterName: mymaster
+    tlsEnabled: true
+  kafka:
+    brokers: kafka.middleware:9092
+    tlsEnabled: true
+  minio:
+    # Pod 与浏览器都必须能访问该地址；实验环境填 <master1-公网IP>:30900（MinIO NodePort）
+    endpoint: minio.middleware:9000
+    bucket: fake-tiktok
+    useSSL: true
+    publicRead: true
+    urlExpiry: 24h
+  grpc:
+    userAddr: user:9081
+    videoAddr: video:9082
+    interactionAddr: interaction:9083
+  jwt:
+    issuer: fake_tiktok
+    accessExpiry: 15m
+    refreshExpiry: 7d
+  otel:
+    enabled: true
+    # otel-collector 部署在 observability 命名空间：跨命名空间短名不解析，必须带命名空间
+    endpoint: otel-collector.observability:4317
+    sampleRatio: "0.3"
+    environment: local
+  upload:
+    maxFileSize: "1073741824"
+  transcode:
+    timeout: "1800"
+  ffmpeg:
+    binaryPath: ffmpeg
+    outputCodec: libx264
+    crf: "23"
+    preset: medium
+  captcha:
+    length: "6"
+  app:
+    skipCaptcha: false
+    autoMigrate: true
+    zapLevel: info
+    zapFormat: json
+    zapFilename: /app/logs/fake_tiktok.log
+    zapConsolePrint: true
+
+secret:
+  # 凭据来源二选一：
+  #   existingSecret 非空 → 引用外部 Secret（生产唯一推荐方式，见 infra/credentials/README.md）
+  #   existingSecret 为空 → Chart 用下面的 data 自建 Secret（仅限临时调试，禁止在生产使用）
+  existingSecret: ""
+  # 凭据由 values-prod 覆盖提供，Chart 据此创建 Secret；base 不填，禁止裸装
+  data:
+    jwtAccessSecret: ""
+    jwtRefreshSecret: ""
+    databasePassword: ""
+    redisPassword: ""
+    minioAccessKey: ""
+    minioSecretKey: ""
+
+hpa:
+  minReplicas: 1
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 70

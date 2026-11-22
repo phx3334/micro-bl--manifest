@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# prod：单副本 + 尾采 10% + 更大的资源配额（尾采要把整条 trace 缓存 decision_wait 这么久）
+resources:
+  - ../../base
+
+patches:
+  - path: patch-collector.yaml

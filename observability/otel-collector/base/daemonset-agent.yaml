@@ -1,0 +1,100 @@
+# otel-collector agent 形态：DaemonSet（每节点一个实例）
+#
+# 职责：tail 节点上 /var/log/pods 的容器 stdout，解析 zap JSON 后写入 Loki。
+# 配置见 config-agent.yaml（由 kustomization.yaml 的 configMapGenerator 生成 ConfigMap）。
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: otel-collector-agent
+  labels:
+    app.kubernetes.io/name: otel-collector-agent   #app.kubernetes.io 前缀的字段是标准字段，社区统一约定，全世界通用。像自己写的自定义那种字段，适合自己内部使用。
+    app.kubernetes.io/component: agent
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otel-collector-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: otel-collector-agent
+        app.kubernetes.io/component: agent
+    spec:
+      # 日志从 hostPath /var/log/pods 读，不访问 K8s API → 不挂载 SA token
+      automountServiceAccountToken: false
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master      #老版本集群是这个
+          operator: Exists
+          effect: NoSchedule
+      terminationGracePeriodSeconds: 30                #Pod 收到删除信号（SIGTERM）之后，K8s 会等待 30 秒优雅退出,把缓冲区里还没发完的日志，推送到 Loki
+      # 读这些 0640 root:root 的文件必须 uid=0，绕不过；
+      # 但只给"最小特权的 root"——能力全删、根 FS 只读、禁止提权，见容器级 securityContext。
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.121.0
+          # 最小特权 root：
+          #   - uid=0 是读 /var/log/pods 下 0640 root:root 文件的硬性前提
+          #   - 但读属主为 root 的文件走 owner 位匹配，不需要 DAC_OVERRIDE，
+          #     所以 capabilities 可以全删，只留 uid 本身
+          #   - 根文件系统只读 + 禁止提权 + RuntimeDefault seccomp，收窄解析器被恶意日志打穿后的破坏面
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]           # 全删 capabilities，只留 uid 本身
+            seccompProfile:
+              type: RuntimeDefault               #  # 只放行默认默认的内核调用，比如 syscall，封掉 mount/ptrace 等高危调用
+          args:
+            - --config=/conf/config-agent.yaml
+          ports:
+            - name: health
+              containerPort: 13133
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: health
+            initialDelaySeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: health
+            initialDelaySeconds: 15   # 给更长启动时间，避免刚启动还没加载完配置就误杀
+            periodSeconds: 20
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+              readOnly: true
+            - name: varlogpods
+              mountPath: /var/log/pods
+              readOnly: true
+            # file_storage 断点位点必须持久化：否则 Pod 重启会按 start_at: end 之外的行为重复回灌
+            - name: state
+              mountPath: /var/lib/otelcol
+            # readOnlyRootFilesystem 的配套：Go 运行时偶尔需要临时目录，唯一可写的临时点
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: otel-collector-agent-config
+        - name: varlogpods
+          hostPath:
+            path: /var/log/pods
+        - name: state
+          hostPath:
+            path: /var/lib/otelcol
+            type: DirectoryOrCreate
+        - name: tmp
+          emptyDir: {}

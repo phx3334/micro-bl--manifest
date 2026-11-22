@@ -1,0 +1,6 @@
+apiVersion: v2
+name: micro-bl #部署后的资源命名前缀
+description: micro-bilibili 业务负载（user / video / interaction / worker / web）
+type: application  #`application` 表示这是可直接部署业务负载的 Chart（区别于`library` ，后者是被其他 Chart 引用的库）
+version: 0.1.0   #每次修改 Chart 模板/配置需要递增，用于 Chart 的版本管理和升级回滚
+appVersion: "prod"

@@ -1,0 +1,159 @@
+{{- range $name, $svc := .Values.services }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ include "fake-tiktok.namespace" $ }}
+  labels:
+    app: {{ $name }}
+    {{- include "fake-tiktok.labels" $ | nindent 4 }}
+spec:
+  replicas: {{ $svc.replicas }}
+  selector:
+    matchLabels:
+      app: {{ $name }}
+  template:
+    metadata:
+      annotations:
+        # ConfigMap/Secret 变更后自动滚动，否则 env 不会热更新（改了配置却仍用旧值）
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") $ | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") $ | sha256sum }}
+      labels:
+        app: {{ $name }}
+        {{- include "fake-tiktok.labels" $ | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "fake-tiktok.fullname" $ }}-app
+      {{- with $.Values.images.pullSecret }}
+      imagePullSecrets:
+        - name: {{ . }}
+      {{- end }}
+      containers:
+        - name: {{ $name }}
+          image: {{ include "fake-tiktok.image" (dict "root" $ "component" $name) }}
+          imagePullPolicy: {{ $.Values.images.pullPolicy }}
+          ports:
+            - name: {{ $name }}-api
+              containerPort: {{ $svc.httpPort }}
+            - name: {{ $name }}-rpc
+              containerPort: {{ $svc.grpcPort }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "fake-tiktok.configMapName" $ }}
+            - secretRef:
+                name: {{ include "fake-tiktok.secretRefName" $ }}
+          env:
+            - name: APP_DATABASE_DBNAME
+              value: {{ $svc.dbName | quote }}
+            - name: APP_SERVER_PORT
+              value: {{ $svc.httpPort | quote }}
+            - name: APP_SERVER_GRPC_PORT
+              value: {{ $svc.grpcPort | quote }}
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: {{ $name }}-api
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ $name }}-api
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            {{- toYaml $svc.resources | nindent 12 }}
+          volumeMounts:
+            # 内部根 CA：App 用它验中间件服务端证书（单向 TLS）
+            - name: internal-ca
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: internal-ca
+          configMap:
+            name: internal-ca
+            items:
+              - key: ca.crt
+                path: internal-ca.crt
+{{- end }}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: {{ include "fake-tiktok.namespace" . }}
+  labels:
+    app: worker
+    {{- include "fake-tiktok.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      annotations:
+        # ConfigMap/Secret 变更后自动滚动，否则 env 不会热更新（改了配置却仍用旧值）
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+      labels:
+        app: worker
+        {{- include "fake-tiktok.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "fake-tiktok.fullname" . }}-app
+      {{- with .Values.images.pullSecret }}
+      imagePullSecrets:
+        - name: {{ . }}
+      {{- end }}
+      containers:
+        - name: worker
+          image: {{ include "fake-tiktok.image" (dict "root" . "component" "worker") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          # 健康端口：只给探针用，不承载业务也不被抓取（指标走 OTLP 推送）
+          ports:
+            - name: worker-health
+              containerPort: 9091
+          # liveness 只判心跳是否推进（worker 内部 /health 不查依赖）；
+          # readiness 探 MySQL，写库不可用就从 Ready 摘掉
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: worker-health
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: worker-health
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          envFrom:
+            - configMapRef:
+                name: {{ include "fake-tiktok.configMapName" . }}
+            - secretRef:
+                name: {{ include "fake-tiktok.secretRefName" . }}
+          env:
+            - name: APP_DATABASE_DBNAME
+              value: {{ .Values.worker.dbName | quote }}
+            - name: APP_DATABASE_AUTO_MIGRATE
+              value: "false"
+            - name: APP_RUN_CRON
+              value: "true"
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          volumeMounts:
+            - name: internal-ca
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: internal-ca
+          configMap:
+            name: internal-ca
+            items:
+              - key: ca.crt
+                path: internal-ca.crt

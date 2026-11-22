@@ -1,0 +1,26 @@
+# 统一凭据 147258（必须与 apps/fake-tiktok 的 Secret 同值，否则业务 Pod 认证失败）
+auth:
+  password: "147258"
+
+# 1 主 + 2 从；单节点资源压到 100m/256Mi（3 节点合计 300m/768Mi），演示优先
+master:
+  persistence:
+    size: 5Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+replica:
+  persistence:
+    size: 5Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi

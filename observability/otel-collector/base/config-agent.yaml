@@ -1,0 +1,82 @@
+# otel-collector agent 形态配置（DaemonSet，每节点一个实例）
+#
+# 为什么必须单独一份，不能塞进 config.yaml：
+#   - gateway（config.yaml）以 Deployment 运行，只收 OTLP，读不到节点上的容器日志文件；
+#   - tail 容器 stdout 必须挂 hostPath /var/log/pods，且每节点一个实例才不漏日志 → DaemonSet。
+# 两个形态用同一个镜像（必须是 contrib 版），就是 OTel 官方的 agent / gateway 模式。
+#
+# 部署前提（缺一不可）：
+#   1. 镜像：otel/opentelemetry-collector-contrib（filelog receiver 与 loki exporter 不在 core 发行版）
+#   2. hostPath 挂载：/var/log/pods 只读
+#   3. 以 root 运行（/var/log/pods 下是软链，非 root 读不到）
+#   4. hostPath 挂载 /var/lib/otelcol 用于断点续采（否则重启后会重复回灌历史日志）
+
+receivers:
+  filelog:
+    # 容器日志统一落在这个目录：/var/log/pods/<ns>_<pod>_<uid>/<container>/N.log
+    # 需要降噪可收窄成 /var/log/pods/fake-tiktok_*/*/*.log
+    include:
+      - /var/log/pods/*/*/*.log
+    # 排除采集器自身：否则自己的日志写进 Loki 又被自己采到，形成放大回路
+    exclude:
+      - /var/log/pods/*_otel-collector*_*/*/*.log
+    # 首次启动从文件末尾开始，不把历史日志一次性灌进 Loki
+    start_at: end
+# 携带文件路径属性，给后面container算子解析pod/ns/container信息
+    include_file_path: true
+# 不需要单独携带日志文件名，减少冗余标签
+    include_file_name: false
+    poll_interval: 200ms
+    # 断点续采：记录每个文件的读取位点
+    storage: file_storage
+    operators:
+      # 1) 解析 CRI 日志行：body 变成业务原始输出，
+      #    并从文件路径提取 k8s.container.name / k8s.pod.name / k8s.namespace.name
+      - type: container
+        format: auto
+      # 2) 业务打的是 zap JSON 单行，解析成日志属性（非 JSON 行原样透传）
+      - type: json_parser
+        parse_from: body
+        parse_to: attributes
+      # 3) k8s.container.name → container：Loki label 名不允许点号
+      - type: move
+        from: attributes["k8s.container.name"]
+        to: attributes.container
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 200
+
+  # loki exporter 只会把 loki.attribute.labels 里点名的属性升格成 Loki label。
+  # 这里只挑低基数的两个：level（5 个值）、container（user/video/interaction/worker/web）。
+  # trace_id / span_id / user_id / video_id 这类高基数字段一律不升 label，
+  # 留在日志正文里靠全文检索——升成 label 会把 Loki 索引打爆，是日志接入最常见的生产事故。
+  attributes/labels:
+    actions:
+      - key: loki.attribute.labels
+        value: level,container
+        action: insert
+
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+
+exporters:
+  loki:
+    endpoint: http://loki:3100/loki/api/v1/push
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+    path: /health
+  file_storage:
+    directory: /var/lib/otelcol/file_storage      #就是上面的 file_storage 路径，用于断点续采
+
+service:
+  extensions: [health_check, file_storage]
+  pipelines:
+    logs:
+      receivers: [filelog]
+      processors: [memory_limiter, attributes/labels, batch]
+      exporters: [loki]
