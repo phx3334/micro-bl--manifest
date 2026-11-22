@@ -5,10 +5,10 @@ apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: {{ $name }}
-  namespace: {{ include "fake-tiktok.namespace" $ }}
+  namespace: {{ include "micro-bl.namespace" $ }}
   labels:
     app: {{ $name }}
-    {{- include "fake-tiktok.labels" $ | nindent 4 }}
+    {{- include "micro-bl.labels" $ | nindent 4 }}
 spec:
   scaleTargetRef:
     apiVersion: apps/v1

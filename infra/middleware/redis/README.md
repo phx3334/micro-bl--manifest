@@ -12,7 +12,7 @@
 - 密码通过 Secret 注入 `APP_REDIS_PASSWORD`；`auth.sentinel: true` 时哨兵也要求密码
 
 ```bash
-# 凭据与容量在 values-prod.yaml（与 fake-tiktok-credentials 的 APP_REDIS_PASSWORD 必须一致），
+# 凭据与容量在 values-prod.yaml（与 micro-bl-credentials 的 APP_REDIS_PASSWORD 必须一致），
 # 用 -f 而不是 --set：避免密码进 shell 历史
 helm upgrade --install redis bitnami/redis -n middleware \
   --version 23.1.3 \

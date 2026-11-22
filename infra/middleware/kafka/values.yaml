@@ -9,7 +9,7 @@ listeners:
     # 单向 TLS：只加密 client ↔ broker，broker 之间与 controller 保持明文
     # （单节点 KRaft，内部没必要再套一层）。
     protocol: SSL
-    # 跨命名空间客户端（fake-tiktok / observability）必须拿到 FQDN；
+    # 跨命名空间客户端（micro-bl / observability）必须拿到 FQDN；
     # 否则 chart 默认 advertised 短名 kafka:9092 在别的命名空间解析不到。
     # 该键名随 chart 版本可能变化，安装前用 helm template 核对。
     advertisedHost: kafka.middleware.svc.cluster.local

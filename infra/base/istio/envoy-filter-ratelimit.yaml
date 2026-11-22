@@ -14,7 +14,7 @@ metadata:
   name: ingress-local-ratelimit
   namespace: istio-system
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 spec:
   workloadSelector:
     labels:

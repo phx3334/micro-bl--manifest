@@ -15,7 +15,7 @@ service:
 # 需要管理界面时用 `mc` 客户端或独立部署 Object Browser；旧版 chart 可补 30901。
 
 # 媒体桶 + Tempo 的 prod 桶（overlays/prod 的 TEMPO_S3_BUCKET=tempo-prod）
-defaultBuckets: fake-tiktok,tempo-prod
+defaultBuckets: micro-bl,tempo-prod
 
 persistence:
   size: 15Gi

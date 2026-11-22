@@ -2,14 +2,14 @@ images:
   # 必须与 Harbor 的 externalURL、Harbor 证书 SAN、Tekton trigger-template
   # 的 image-registry 逐字一致；Harbor 证书由 cert-manager 内部 CA 签发，
   # 节点 containerd 需要信任该 CA（见 cicd/harbor/values.yaml 文末）
-  registry: REPLACE_WITH_SERVER_IP:30003/fake-tiktok
+  registry: REPLACE_WITH_SERVER_IP:30003/micro-bl
   # 初始占位；Tekton 的 update-gitops 会回写为 commit SHA（不可变）+ IfNotPresent。
   # values-prod 不再覆盖，保证生产始终按不可变 tag 拉取，避免节点上残留旧镜像。
   tag: stable
   pullPolicy: IfNotPresent
-  # harbor-pull 需手工创建在 fake-tiktok 命名空间（与 Tekton 的 harbor-push 分开：
+  # harbor-pull 需手工创建在 micro-bl 命名空间（与 Tekton 的 harbor-push 分开：
   # 一个只读、一个可推，凭据权限不同）：
-  #   kubectl -n fake-tiktok create secret docker-registry harbor-pull \
+  #   kubectl -n micro-bl create secret docker-registry harbor-pull \
   #     --docker-server=REPLACE_WITH_SERVER_IP:30003 \
   #     --docker-username='robot$pull' --docker-password='<token>'
   pullSecret: harbor-pull
@@ -83,7 +83,7 @@ config:
   tls:
     caFile: /certs/internal-ca.crt
   # 中间件统一装在 middleware 命名空间（见各中间件 README 的 helm -n middleware），
-  # 业务 Pod 在 fake-tiktok：跨命名空间短名不解析，必须写 <svc>.middleware
+  # 业务 Pod 在 micro-bl：跨命名空间短名不解析，必须写 <svc>.middleware
   database:
     host: mysql.middleware
     port: 3306
@@ -105,7 +105,7 @@ config:
   minio:
     # Pod 与浏览器都必须能访问该地址；实验环境填 <master1-公网IP>:30900（MinIO NodePort）
     endpoint: minio.middleware:9000
-    bucket: fake-tiktok
+    bucket: micro-bl
     useSSL: true
     publicRead: true
     urlExpiry: 24h
@@ -114,7 +114,7 @@ config:
     videoAddr: video:9082
     interactionAddr: interaction:9083
   jwt:
-    issuer: fake_tiktok
+    issuer: micro-bl
     accessExpiry: 15m
     refreshExpiry: 7d
   otel:
@@ -139,7 +139,7 @@ config:
     autoMigrate: true
     zapLevel: info
     zapFormat: json
-    zapFilename: /app/logs/fake_tiktok.log
+    zapFilename: /app/logs/micro-bl.log
     zapConsolePrint: true
 
 secret:

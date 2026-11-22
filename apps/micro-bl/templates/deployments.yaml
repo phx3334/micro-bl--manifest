@@ -4,10 +4,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ $name }}
-  namespace: {{ include "fake-tiktok.namespace" $ }}
+  namespace: {{ include "micro-bl.namespace" $ }}
   labels:
     app: {{ $name }}
-    {{- include "fake-tiktok.labels" $ | nindent 4 }}
+    {{- include "micro-bl.labels" $ | nindent 4 }}
 spec:
   replicas: {{ $svc.replicas }}
   selector:
@@ -21,16 +21,16 @@ spec:
         checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") $ | sha256sum }}
       labels:
         app: {{ $name }}
-        {{- include "fake-tiktok.labels" $ | nindent 8 }}
+        {{- include "micro-bl.labels" $ | nindent 8 }}
     spec:
-      serviceAccountName: {{ include "fake-tiktok.fullname" $ }}-app
+      serviceAccountName: {{ include "micro-bl.fullname" $ }}-app
       {{- with $.Values.images.pullSecret }}
       imagePullSecrets:
         - name: {{ . }}
       {{- end }}
       containers:
         - name: {{ $name }}
-          image: {{ include "fake-tiktok.image" (dict "root" $ "component" $name) }}
+          image: {{ include "micro-bl.image" (dict "root" $ "component" $name) }}
           imagePullPolicy: {{ $.Values.images.pullPolicy }}
           ports:
             - name: {{ $name }}-api
@@ -39,9 +39,9 @@ spec:
               containerPort: {{ $svc.grpcPort }}
           envFrom:
             - configMapRef:
-                name: {{ include "fake-tiktok.configMapName" $ }}
+                name: {{ include "micro-bl.configMapName" $ }}
             - secretRef:
-                name: {{ include "fake-tiktok.secretRefName" $ }}
+                name: {{ include "micro-bl.secretRefName" $ }}
           env:
             - name: APP_DATABASE_DBNAME
               value: {{ $svc.dbName | quote }}
@@ -84,10 +84,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: worker
-  namespace: {{ include "fake-tiktok.namespace" . }}
+  namespace: {{ include "micro-bl.namespace" . }}
   labels:
     app: worker
-    {{- include "fake-tiktok.labels" . | nindent 4 }}
+    {{- include "micro-bl.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.worker.replicas }}
   selector:
@@ -101,16 +101,16 @@ spec:
         checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
       labels:
         app: worker
-        {{- include "fake-tiktok.labels" . | nindent 8 }}
+        {{- include "micro-bl.labels" . | nindent 8 }}
     spec:
-      serviceAccountName: {{ include "fake-tiktok.fullname" . }}-app
+      serviceAccountName: {{ include "micro-bl.fullname" . }}-app
       {{- with .Values.images.pullSecret }}
       imagePullSecrets:
         - name: {{ . }}
       {{- end }}
       containers:
         - name: worker
-          image: {{ include "fake-tiktok.image" (dict "root" . "component" "worker") }}
+          image: {{ include "micro-bl.image" (dict "root" . "component" "worker") }}
           imagePullPolicy: {{ .Values.images.pullPolicy }}
           # 健康端口：只给探针用，不承载业务也不被抓取（指标走 OTLP 推送）
           ports:
@@ -134,9 +134,9 @@ spec:
             failureThreshold: 3
           envFrom:
             - configMapRef:
-                name: {{ include "fake-tiktok.configMapName" . }}
+                name: {{ include "micro-bl.configMapName" . }}
             - secretRef:
-                name: {{ include "fake-tiktok.secretRefName" . }}
+                name: {{ include "micro-bl.secretRefName" . }}
           env:
             - name: APP_DATABASE_DBNAME
               value: {{ .Values.worker.dbName | quote }}

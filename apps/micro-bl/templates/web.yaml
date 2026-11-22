@@ -3,10 +3,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: web
-  namespace: {{ include "fake-tiktok.namespace" . }}
+  namespace: {{ include "micro-bl.namespace" . }}
   labels:
     app: web
-    {{- include "fake-tiktok.labels" . | nindent 4 }}
+    {{- include "micro-bl.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.web.replicas }}
   selector:
@@ -16,16 +16,16 @@ spec:
     metadata:
       labels:
         app: web
-        {{- include "fake-tiktok.labels" . | nindent 8 }}
+        {{- include "micro-bl.labels" . | nindent 8 }}
     spec:
-      serviceAccountName: {{ include "fake-tiktok.fullname" . }}-app
+      serviceAccountName: {{ include "micro-bl.fullname" . }}-app
       {{- with .Values.images.pullSecret }}
       imagePullSecrets:
         - name: {{ . }}
       {{- end }}
       containers:
         - name: web
-          image: {{ include "fake-tiktok.image" (dict "root" . "component" "web") }}
+          image: {{ include "micro-bl.image" (dict "root" . "component" "web") }}
           imagePullPolicy: {{ .Values.images.pullPolicy }}
           ports:
             - name: web-http

@@ -42,7 +42,7 @@ processors:
   # 会被 spanmetrics 统计，导致 calls_total 重复计数、SLO 口径失真。
   #
   # 判断依据用 instrumentation scope：业务 span 的 scope 是 otelx.GinMiddleware 里
-  # 写死的 "fake_tiktok/http"，Istio/Envoy 的 span scope 不是它。
+  # 写死的 "micro-bl/http"，Istio/Envoy 的 span scope 不是它。
   #
   # error_mode: ignore —— 万一 OTTL 表达式在某个 collector 版本不被识别，
   # 会退化成「不过滤」（span 全部保留），而不是把业务 span 全丢掉。
@@ -51,7 +51,7 @@ processors:
     error_mode: ignore
     traces:
       span:
-        - 'instrumentation_scope.name != "fake_tiktok/http"'
+        - 'instrumentation_scope.name != "micro-bl/http"'
 
 # spanmetrics connector：从 span 派生 RED 指标（calls + duration 直方图），
 # 替代业务代码里的 HTTP RED 埋点。维度只取 span 上天然存在的属性。

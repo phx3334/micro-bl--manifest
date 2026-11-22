@@ -7,7 +7,7 @@
 apiVersion: networking.istio.io/v1beta1
 kind: Gateway
 metadata:
-  name: fake-tiktok-gateway
+  name: micro-bl-gateway
   namespace: istio-system
 spec:
   selector:

@@ -5,13 +5,13 @@ metadata:
   name: istio-sidecars
   namespace: observability
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 spec:
   namespaceSelector:
     matchNames:
-      # 只有 fake-tiktok 注入 sidecar；middleware/observability 整体不注入
+      # 只有 micro-bl 注入 sidecar；middleware/observability 整体不注入
       # （见 infra/base/namespaces.yaml），没有 tlsMode 标签可选，不用列进来
-      - fake-tiktok
+      - micro-bl
   selector:
     matchLabels:
       # injection webhook 给所有注入 sidecar 的 Pod 打的标签，

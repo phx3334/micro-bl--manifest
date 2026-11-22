@@ -14,5 +14,5 @@ configMapGenerator:
       - dashboards.yaml
   - name: grafana-dashboards
     files:
-      - dashboards/fake-tiktok-overview.json
-      - dashboards/fake-tiktok-middleware.json
+      - dashboards/micro-bl-overview.json
+      - dashboards/micro-bl-middleware.json

@@ -5,7 +5,7 @@
 #   串行的代价是总时长变长，换来的是任何节点拓扑下都稳定。
 #
 # 镜像命名与 apps chart 的 _helpers.tpl 保持一致：
-#   <registry>/fake_tiktok-<component>:<tag>
+#   <registry>/micro-bl-<component>:<tag>
 # 改这里必须同步改 templates/_helpers.tpl，否则部署时 ImagePullBackOff。
 apiVersion: tekton.dev/v1
 kind: Pipeline
@@ -13,7 +13,7 @@ metadata:
   name: build-app
   namespace: platform-system
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 spec:
   params:
     - name: repo-url
@@ -22,7 +22,7 @@ spec:
       type: string
     - name: image-registry
       type: string
-      description: 如 REPLACE_WITH_SERVER_IP:30003/fake-tiktok
+      description: 如 REPLACE_WITH_SERVER_IP:30003/micro-bl
     - name: tag
       type: string
       description: 不可变 tag，直接用 commit SHA
@@ -33,7 +33,7 @@ spec:
       default: main
     - name: infra-values-file
       type: string
-      default: apps/fake-tiktok/values-prod.yaml
+      default: apps/micro-bl/values-prod.yaml
   workspaces:
     - name: source
     - name: image
@@ -79,7 +79,7 @@ spec:
           workspace: image
       params:
         - name: image
-          value: $(params.image-registry)/fake_tiktok-user:$(params.tag)
+          value: $(params.image-registry)/micro-bl-user:$(params.tag)
         - name: context
           value: server
         - name: dockerfile
@@ -102,7 +102,7 @@ spec:
           workspace: image
       params:
         - name: image
-          value: $(params.image-registry)/fake_tiktok-video:$(params.tag)
+          value: $(params.image-registry)/micro-bl-video:$(params.tag)
         - name: context
           value: server
         - name: dockerfile
@@ -123,7 +123,7 @@ spec:
           workspace: image
       params:
         - name: image
-          value: $(params.image-registry)/fake_tiktok-interaction:$(params.tag)
+          value: $(params.image-registry)/micro-bl-interaction:$(params.tag)
         - name: context
           value: server
         - name: dockerfile
@@ -144,7 +144,7 @@ spec:
           workspace: image
       params:
         - name: image
-          value: $(params.image-registry)/fake_tiktok-worker:$(params.tag)
+          value: $(params.image-registry)/micro-bl-worker:$(params.tag)
         - name: context
           value: server
         - name: dockerfile
@@ -165,7 +165,7 @@ spec:
           workspace: image
       params:
         - name: image
-          value: $(params.image-registry)/fake_tiktok-web:$(params.tag)
+          value: $(params.image-registry)/micro-bl-web:$(params.tag)
         - name: context
           value: web
         - name: dockerfile

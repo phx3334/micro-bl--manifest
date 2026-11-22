@@ -14,7 +14,7 @@ metadata:
   name: minio
   namespace: observability
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 spec:
   namespaceSelector:
     matchNames:

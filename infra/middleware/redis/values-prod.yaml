@@ -1,4 +1,4 @@
-# 统一凭据 147258（必须与 apps/fake-tiktok 的 Secret 同值，否则业务 Pod 认证失败）
+# 统一凭据 147258（必须与 apps/micro-bl 的 Secret 同值，否则业务 Pod 认证失败）
 auth:
   password: "147258"
 

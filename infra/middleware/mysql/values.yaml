@@ -3,7 +3,7 @@
 #   三库 feed_user / feed_video / feed_interaction 由 init/01-databases.sql 创建，
 #   表结构由各服务启动时 AutoMigrate 创建（app values 的 config.app.autoMigrate）
 #   账号：业务用 phx（auth.username/password），root 仅给运维与 exporter
-#   密码一致性：auth.password 必须 == apps/fake-tiktok/values-* 的 secret.data.databasePassword
+#   密码一致性：auth.password 必须 == apps/micro-bl/values-* 的 secret.data.databasePassword
 
 fullnameOverride: mysql
 

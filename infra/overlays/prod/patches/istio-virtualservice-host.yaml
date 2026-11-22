@@ -2,8 +2,8 @@
 apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
 metadata:
-  name: fake-tiktok
-  namespace: fake-tiktok
+  name: micro-bl
+  namespace: micro-bl
 spec:
   hosts:
     - REPLACE_WITH_SERVER_IP

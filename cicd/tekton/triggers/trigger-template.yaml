@@ -10,25 +10,25 @@ metadata:
   name: build-app
   namespace: platform-system
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 spec:
   params:
     - name: repo-url
     - name: revision
     - name: branch
     - name: image-registry
-      default: "REPLACE_WITH_SERVER_IP:30003/fake-tiktok"
+      default: "REPLACE_WITH_SERVER_IP:30003/micro-bl"
     - name: infra-repo-url
       default: "https://github.com/phx3334/micro-bl--manifest.git"
     - name: infra-values-file
-      default: "apps/fake-tiktok/values-prod.yaml"
+      default: "apps/micro-bl/values-prod.yaml"
   resourcetemplates:
     - apiVersion: tekton.dev/v1
       kind: PipelineRun
       metadata:
         generateName: build-app-
         labels:
-          app.kubernetes.io/part-of: fake-tiktok
+          app.kubernetes.io/part-of: micro-bl
           triggertemplate: build-app
       spec:
         pipelineRef:

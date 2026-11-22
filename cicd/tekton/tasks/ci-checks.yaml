@@ -11,7 +11,7 @@ metadata:
   name: backend-ci
   namespace: platform-system
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 spec:
   # 挂载源码共享卷，拉取代码的Task把源码放到这个workspace，供当前Task读取
   workspaces:
@@ -68,7 +68,7 @@ metadata:
   name: frontend-ci
   namespace: platform-system
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 spec:
   # 和后端共用同一份源码卷，只读读取前端代码
   workspaces:

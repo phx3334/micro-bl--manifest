@@ -3,7 +3,7 @@ provider "alicloud" {
 }
 
 locals {
-  name_prefix = "fake-tiktok"
+  name_prefix = "micro-bl"
   az          = var.availability_zone != "" ? var.availability_zone : data.alicloud_zones.this.zones[0].id
 
   # 固定私网 IP，避免 kubeadm 配置随实例重建而变化：master 10 起、worker 20 起

@@ -14,7 +14,7 @@
 receivers:
   filelog:
     # 容器日志统一落在这个目录：/var/log/pods/<ns>_<pod>_<uid>/<container>/N.log
-    # 需要降噪可收窄成 /var/log/pods/fake-tiktok_*/*/*.log
+    # 需要降噪可收窄成 /var/log/pods/micro-bl_*/*/*.log
     include:
       - /var/log/pods/*/*/*.log
     # 排除采集器自身：否则自己的日志写进 Loki 又被自己采到，形成放大回路

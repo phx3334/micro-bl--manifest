@@ -1,7 +1,7 @@
 resource "alicloud_vpc" "this" {
   vpc_name    = "${local.name_prefix}-vpc"
   cidr_block  = var.vpc_cidr
-  description = "fake-tiktok k8s (terraform)"
+  description = "micro-bl k8s (terraform)"
 
   tags = local.common_tags
 }
@@ -17,7 +17,7 @@ resource "alicloud_vswitch" "this" {
 
 resource "alicloud_security_group" "this" {
   security_group_name = "${local.name_prefix}-k8s"
-  description         = "fake-tiktok k8s nodes"
+  description         = "micro-bl k8s nodes"
   vpc_id              = alicloud_vpc.this.id
 
   tags = local.common_tags

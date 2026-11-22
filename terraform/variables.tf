@@ -78,7 +78,7 @@ variable "image_name_regex" {
 variable "key_pair_name" {
   description = "阿里云密钥对名称"
   type        = string
-  default     = "fake-tiktok"
+  default     = "micro-bl"
 }
 
 variable "ssh_public_key" {
@@ -119,7 +119,7 @@ variable "tags" {
   description = "通用标签"
   type        = map(string)
   default = {
-    project = "fake-tiktok"
+    project = "micro-bl"
     env     = "prod"
   }
 }

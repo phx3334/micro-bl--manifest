@@ -4,7 +4,7 @@ metadata:
   name: istio-cacerts-sync
   namespace: istio-system
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 ---
 # 权限只覆盖「读源 Secret、写 cacerts、重启 istiod」三件事，且锁在 istio-system 内
 apiVersion: rbac.authorization.k8s.io/v1
@@ -13,7 +13,7 @@ metadata:
   name: istio-cacerts-sync
   namespace: istio-system
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 rules:
   # 读：只允许读这两个 Secret（源 istio-ca + 目标 cacerts，用于判断是否变化）
   - apiGroups: [""]
@@ -40,7 +40,7 @@ metadata:
   name: istio-cacerts-sync
   namespace: istio-system
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -56,7 +56,7 @@ metadata:
   name: istio-cacerts-sync
   namespace: istio-system
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 spec:
   schedule: "*/30 * * * *"
   concurrencyPolicy: Forbid

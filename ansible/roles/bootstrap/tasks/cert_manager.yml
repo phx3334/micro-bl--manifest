@@ -1,5 +1,5 @@
 # cert-manager + 全集群证书链：
-#   fake-tiktok-ca（根）→ harbor-tls / istio-ca / mysql-tls / redis-tls / kafka-tls / minio-tls
+#   micro-bl-ca（根）→ harbor-tls / istio-ca / mysql-tls / redis-tls / kafka-tls / minio-tls
 ---
 - name: 添加 cert-manager Helm 仓库
   command: helm repo add --force-update jetstack {{ helm_repos.jetstack }}
@@ -61,7 +61,7 @@
   changed_when: "'created' in cert_apply.stdout or 'configured' in cert_apply.stdout"
 
 - name: 等待根 CA 就绪
-  command: kubectl -n cert-manager wait --for=condition=Ready certificate/fake-tiktok-ca --timeout=180s
+  command: kubectl -n cert-manager wait --for=condition=Ready certificate/micro-bl-ca --timeout=180s
   changed_when: false
 
 - name: 等待 Istio 中间 CA 就绪

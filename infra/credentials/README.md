@@ -8,10 +8,10 @@
 | Secret | 命名空间 | 键 | 消费者 | 配置位置 |
 |---|---|---|---|---|
 | `minio-credentials` | `middleware` | `rootUser`、`rootPassword` | MinIO chart（`auth.existingSecret`） | `infra/middleware/minio/values-prod.yaml` |
-| `fake-tiktok-credentials` | `fake-tiktok` | `APP_JWT_ACCESS_TOKEN_SECRET`、`APP_JWT_REFRESH_TOKEN_SECRET`、`APP_DATABASE_PASSWORD`、`APP_REDIS_PASSWORD`、`APP_MINIO_ACCESS_KEY`、`APP_MINIO_SECRET_KEY` | 业务 chart（`secret.existingSecret`，`envFrom.secretRef` 整体注入） | `apps/fake-tiktok/values-prod.yaml` |
+| `micro-bl-credentials` | `micro-bl` | `APP_JWT_ACCESS_TOKEN_SECRET`、`APP_JWT_REFRESH_TOKEN_SECRET`、`APP_DATABASE_PASSWORD`、`APP_REDIS_PASSWORD`、`APP_MINIO_ACCESS_KEY`、`APP_MINIO_SECRET_KEY` | 业务 chart（`secret.existingSecret`，`envFrom.secretRef` 整体注入） | `apps/micro-bl/values-prod.yaml` |
 | `tempo-s3` | `observability` | `accessKey`、`secretKey` | Tempo（`secretKeyRef` 逐项注入） | `observability/tempo/overlays/prod` |
 | `grafana-admin` | `observability` | `adminPassword` | Grafana（`secretKeyRef` 注入 `GF_SECURITY_ADMIN_PASSWORD`） | `observability/grafana/base/deployment.yaml` |
-| `harbor-pull` | `fake-tiktok` | `.dockerconfigjson` | 业务 Pod 拉镜像（`imagePullSecrets`） | `apps/fake-tiktok/values.yaml` |
+| `harbor-pull` | `micro-bl` | `.dockerconfigjson` | 业务 Pod 拉镜像（`imagePullSecrets`） | `apps/micro-bl/values.yaml` |
 | `harbor-push` | `platform-system` | `.dockerconfigjson` | Tekton BuildKit/Skopeo 推镜像 | `cicd/tekton/tasks/build-scan-push.yaml` |
 | `github-webhook-secret` | `platform-system` | `secretToken` | Tekton EventListener HMAC 校验 | `cicd/tekton/triggers/event-listener.yaml` |
 | `gitops-token` | `platform-system` | `token` | Tekton 回写 infra 仓库 | `cicd/tekton/tasks/update-gitops.yaml` |
@@ -55,7 +55,7 @@ rm -f /tmp/minio-credentials.yaml
 kubectl apply -f prod/minio-credentials.sealed.yaml
 ```
 
-业务凭据同理，把 `name` 改为 `fake-tiktok-credentials`、`namespace` 改为 `fake-tiktok`、
+业务凭据同理，把 `name` 改为 `micro-bl-credentials`、`namespace` 改为 `micro-bl`、
 `stringData` 换成契约表里的 6 个键；Tempo 的 `tempo-s3` 换到 `observability`；
 `harbor-pull` / `harbor-push` 用 `kubectl create secret docker-registry` 生成后
 再按同样方式封印。

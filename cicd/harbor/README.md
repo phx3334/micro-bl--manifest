@@ -8,8 +8,8 @@ Tekton 的 `build-scan-push` 用 BuildKit registry cache，缓存镜像有两个
 
 | 仓库 | 用途 |
 |---|---|
-| `fake-tiktok/buildcache-go:main` | 4 个 Go 服务共用的 builder 层缓存（Go 工具链、模块层） |
-| `fake-tiktok/buildcache-web:main` | 前端 npm 依赖与构建层缓存 |
+| `micro-bl/buildcache-go:main` | 4 个 Go 服务共用的 builder 层缓存（Go 工具链、模块层） |
+| `micro-bl/buildcache-web:main` | 前端 npm 依赖与构建层缓存 |
 
 `--export-cache mode=max` 会把 builder 阶段的中间层一起导出，所以缓存镜像会随依赖增长，必须有配额和清理策略。
 
@@ -19,8 +19,8 @@ Tekton 的 `build-scan-push` 用 BuildKit registry cache，缓存镜像有两个
 
 | 方案 | 做法 |
 |---|---|
-| 当前（同项目） | retention 规则的 repository 选择器**只选业务仓库**（`fake_tiktok-*`），不要用 `**`；业务镜像保留最近 30 个 tag，缓存仓库不在规则范围内 |
-| 生产推荐（独立项目） | 新建 `fake-tiktok-cache` 项目放缓存镜像；项目级 quota 限制 10GiB，不配 tag 保留规则；robot 同时需要 `fake-tiktok` 和 `fake-tiktok-cache` 的 push 权限 |
+| 当前（同项目） | retention 规则的 repository 选择器**只选业务仓库**（`micro-bl-*`），不要用 `**`；业务镜像保留最近 30 个 tag，缓存仓库不在规则范围内 |
+| 生产推荐（独立项目） | 新建 `micro-bl-cache` 项目放缓存镜像；项目级 quota 限制 10GiB，不配 tag 保留规则；robot 同时需要 `micro-bl` 和 `micro-bl-cache` 的 push 权限 |
 
 同项目方案下，只要 retention 不匹配 `buildcache-*`，缓存就不会被定时任务误删。
 
@@ -28,7 +28,7 @@ Tekton 的 `build-scan-push` 用 BuildKit registry cache，缓存镜像有两个
 
 Harbor 项目配额（UI：Project → Configuration → Quota）：
 
-- `fake-tiktok`：业务镜像按版本数量估算，20GiB 起步；
+- `micro-bl`：业务镜像按版本数量估算，20GiB 起步；
 - 缓存仓库：10GiB 起步。超过配额后 cache push 会失败，但 `ignore-error=true` 保证只降级为无缓存构建，不阻断流水线。
 
 ## 监控
@@ -47,7 +47,7 @@ UI 里删 artifact，或：
 
 ```bash
 curl -u admin:<password> -X DELETE \
-  "https://<harbor>/api/v2.0/projects/fake-tiktok/repositories/buildcache-go/artifacts/main"
+  "https://<harbor>/api/v2.0/projects/micro-bl/repositories/buildcache-go/artifacts/main"
 ```
 
 ## 分支策略

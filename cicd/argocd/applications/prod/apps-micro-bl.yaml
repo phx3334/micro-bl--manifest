@@ -1,22 +1,22 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: apps-fake-tiktok
+  name: apps-micro-bl
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "2"
 spec:
-  project: fake-tiktok
+  project: micro-bl
   source:
     repoURL: https://github.com/phx3334/micro-bl--manifest.git
     targetRevision: main
-    path: apps/fake-tiktok
+    path: apps/micro-bl
     helm:
       valueFiles:
         - values-prod.yaml
   destination:
     server: https://kubernetes.default.svc
-    namespace: fake-tiktok
+    namespace: micro-bl
   syncPolicy:
     automated:
       prune: true

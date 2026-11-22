@@ -20,6 +20,6 @@ spec:
     - key encipherment   # 密钥加密：可以用证书公钥加密会话密钥，RSA体系TLS握手密钥交换需要
 
   issuerRef:
-    name: fake-tiktok-ca-issuer
+    name: micro-bl-ca-issuer
     kind: ClusterIssuer
     group: cert-manager.io  # API分组，cert-manager自定义资源的API组，用来区分K8s原生资源和cert-manager扩展CRD资源

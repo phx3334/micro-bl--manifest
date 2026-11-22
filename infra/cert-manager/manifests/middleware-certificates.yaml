@@ -1,11 +1,11 @@
 # 中间件单向 TLS 证书：只签「服务端」证书，客户端不出示证书。
 #
 # 依赖：middleware 命名空间已由 infra/base/namespaces.yaml 创建。
-# 四张证书都由全集群唯一的根 CA（fake-tiktok-ca-issuer）签发，
+# 四张证书都由全集群唯一的根 CA（micro-bl-ca-issuer）签发，
 # 客户端只需信任同一个 ca.crt。
 #
 # SAN 不是随便写：TLS 校验比的是「客户端连接时用的 host」。
-#   · 业务 Pod 在 fake-tiktok，跨命名空间只能用 <svc>.middleware
+#   · 业务 Pod 在 micro-bl，跨命名空间只能用 <svc>.middleware
 #   · exporter sidecar 走 127.0.0.1 → 必须有 IP SAN
 #   · MinIO 的直链给浏览器用节点 IP（NodePort）→ 必须有该 IP 的 SAN
 apiVersion: cert-manager.io/v1
@@ -14,7 +14,7 @@ metadata:
   name: mysql-tls
   namespace: middleware
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 spec:
   secretName: mysql-tls
   duration: 8760h
@@ -35,7 +35,7 @@ spec:
   ipAddresses:
     - 127.0.0.1   # mysqld_exporter sidecar 连 localhost
   issuerRef:
-    name: fake-tiktok-ca-issuer
+    name: micro-bl-ca-issuer
     kind: ClusterIssuer
     group: cert-manager.io
 ---
@@ -45,7 +45,7 @@ metadata:
   name: redis-tls
   namespace: middleware
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 spec:
   secretName: redis-tls
   duration: 8760h
@@ -78,7 +78,7 @@ spec:
   ipAddresses:
     - 127.0.0.1   # redis_exporter sidecar 连 localhost
   issuerRef:
-    name: fake-tiktok-ca-issuer
+    name: micro-bl-ca-issuer
     kind: ClusterIssuer
     group: cert-manager.io
 ---
@@ -88,7 +88,7 @@ metadata:
   name: kafka-tls
   namespace: middleware
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 spec:
   secretName: kafka-tls
   duration: 8760h
@@ -110,7 +110,7 @@ spec:
     - kafka-0.kafka-headless.middleware.svc.cluster.local
     - kafka-controller-0.kafka-controller-headless.middleware.svc.cluster.local
   issuerRef:
-    name: fake-tiktok-ca-issuer
+    name: micro-bl-ca-issuer
     kind: ClusterIssuer
     group: cert-manager.io
 ---
@@ -123,7 +123,7 @@ metadata:
   name: minio-tls
   namespace: middleware
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 spec:
   secretName: minio-tls
   duration: 8760h
@@ -145,6 +145,6 @@ spec:
     # ⚠️ 与 harbor-tls 同一个占位符：浏览器直链和 Pod 都走 NodePort IP
     - REPLACE_WITH_SERVER_IP
   issuerRef:
-    name: fake-tiktok-ca-issuer
+    name: micro-bl-ca-issuer
     kind: ClusterIssuer
     group: cert-manager.io

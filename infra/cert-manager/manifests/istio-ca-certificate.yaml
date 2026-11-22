@@ -5,7 +5,7 @@ metadata:
   name: istio-ca
   namespace: istio-system
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 spec:
   isCA: true
   commonName: istio-intermediate-ca
@@ -21,6 +21,6 @@ spec:
     - crl sign
     - digital signature
   issuerRef:
-    name: fake-tiktok-ca-issuer
+    name: micro-bl-ca-issuer
     kind: ClusterIssuer
     group: cert-manager.io

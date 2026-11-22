@@ -13,7 +13,7 @@
 #     -o jsonpath='{.data.password}' | base64 -d
 #
 # 定位：Argo CD 是"引导层"，自己不由 Argo CD 管理（和 Tekton 平台同理）。
-# 它接管的是 infra/overlays/<env> 与 apps/fake-tiktok 两类 Application。
+# 它接管的是 infra/overlays/<env> 与 apps/micro-bl 两类 Application。
 
 # NodePort 直连，不走域名；server 关闭内置 TLS（HTTP 到 NodePort）。
 # 生产应改回 TLS + Ingress/LB，并开启 SSO。

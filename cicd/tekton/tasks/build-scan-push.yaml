@@ -8,12 +8,12 @@ metadata:
   name: build-scan-push
   namespace: platform-system
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 spec:
   params:
     - name: image
       type: string
-      description: 完整镜像引用，如 harbor:30003/fake-tiktok/fake_tiktok-user:<sha>
+      description: 完整镜像引用，如 harbor:30003/micro-bl/micro-bl-user:<sha>
     - name: context
       type: string
       description: 相对仓库根的构建上下文（Go 服务用 "server"，前端用 "web"）
@@ -28,7 +28,7 @@ spec:
       type: string
       default: ""
       description: >-
-        BuildKit 跨流水线缓存镜像引用（如 harbor:30003/fake-tiktok/buildcache-go:main）；
+        BuildKit 跨流水线缓存镜像引用（如 harbor:30003/micro-bl/buildcache-go:main）；
         空表示不启用缓存。启用后 buildctl 从该引用 import、构建完成后 export 回去。
   workspaces:
     - name: source

@@ -16,7 +16,7 @@ terraform {
   # 状态默认保存在本地（已被 project-infra/.gitignore 排除）。
   # 多人协作时换成 OSS 后端，并先创建 bucket：
   # backend "oss" {
-  #   bucket = "fake-tiktok-tfstate"
+  #   bucket = "micro-bl-tfstate"
   #   key    = "k8s/terraform.tfstate"
   #   region = "cn-hangzhou"
   # }

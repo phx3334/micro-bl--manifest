@@ -1,7 +1,7 @@
 # bitnami/redis —— 部署配置，对齐业务代码 server/configs/config.yaml：
 #   连接：APP_REDIS_HOST=redis.middleware，哨兵地址 redis.middleware:26379，
 #   key 前缀 feedsystem:v1 是业务侧配置，与 Redis 无关
-#   密码一致性：auth.password 必须与 apps/fake-tiktok 的 Secret 同值
+#   密码一致性：auth.password 必须与 apps/micro-bl 的 Secret 同值
 #
 # 高可用：Sentinel 1 主 2 从（3 个数据节点，sentinel 与 redis 同 Pod）。
 #   sentinel.enabled 会关闭 master/replicas 两个 Service，改为单一 Service

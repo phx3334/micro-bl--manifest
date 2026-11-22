@@ -14,7 +14,7 @@ metadata:
   name: github-listener
   namespace: platform-system
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 spec:
   serviceAccountName: tekton-triggers-sa
   triggers:

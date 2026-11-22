@@ -19,7 +19,7 @@
 #   #    kubectl -n istio-system wait --for=condition=Ready certificate/istio-ca --timeout=120s
 #   #    bootstrap 会手动触发一次 istio-cacerts-sync（CronJob 本身 30 分钟一轮）
 #   #    kubectl -n istio-system get secret cacerts
-#   #    —— istiod 看到 cacerts 就用「fake-tiktok-ca 根签发的中间 CA」签 SVID，
+#   #    —— istiod 看到 cacerts 就用「micro-bl-ca 根签发的中间 CA」签 SVID，
 #   #       与 Harbor 证书的 issuer 同指一个根（信任锚共用一份 ca.crt），
 #   #       根证书本体不进任何链。
 #   #    istiod 还带 --create-namespace，会复用 cert-manager 那层先建好的 istio-system。
@@ -45,14 +45,14 @@
 #   kubectl -n istio-system get pods          # istiod / istio-ingress 均 Running
 #   kubectl -n istio-system get hpa           # 副本看这里（HPA 接管，get deploy 不显示期望副本）
 #   kubectl -n istio-system get svc istio-ingress   # 取 NodePort
-#   kubectl -n fake-tiktok get pods -o jsonpath='{.items[0].spec.containers[*].name}'
+#   kubectl -n micro-bl get pods -o jsonpath='{.items[0].spec.containers[*].name}'
 #       # 业务 Pod 应有两个容器：业务容器 + istio-proxy
 #
 # ---------------------------------------------------------------------------
 # 网格范围（关键设计，决定了 mTLS 策略与抓取方式）
 #
 #   注入 sidecar 的命名空间：
-#     fake-tiktok  ← 业务三服务 + worker + web，互调用自动 mTLS + L7 治理
+#     micro-bl  ← 业务三服务 + worker + web，互调用自动 mTLS + L7 治理
 #                    （业务 → 中间件的出站仍经 sidecar 转发，但那一跳的加密
 #                     在应用层单向 TLS，sidecar 对无 sidecar 目标自动走明文）
 #
@@ -109,7 +109,7 @@
 它们同样带 `http.status_code`，会被 spanmetrics 统计进去，导致 `calls_total` 重复计数。
 
 因此 collector 的 `traces/metrics` 管道加了 `filter/only-app-spans`，只放
-`instrumentation_scope.name == "fake_tiktok/http"` 的 span 进 spanmetrics。
+`instrumentation_scope.name == "micro-bl/http"` 的 span 进 spanmetrics。
 
 **部署后必须核对**：`calls_total` 的增量应与 QPS 1:1，不能是 2~3 倍。若翻倍，说明过滤没生效
 （`error_mode: ignore` 会让表达式错误退化成"不过滤"），此时 `MetricsAbsent` 不会报警，

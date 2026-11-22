@@ -10,9 +10,9 @@ apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
   name: user
-  namespace: fake-tiktok
+  namespace: micro-bl
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 spec:
   host: user
   trafficPolicy:
@@ -42,9 +42,9 @@ apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
   name: video
-  namespace: fake-tiktok
+  namespace: micro-bl
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 spec:
   host: video
   trafficPolicy:
@@ -66,9 +66,9 @@ apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
   name: interaction
-  namespace: fake-tiktok
+  namespace: micro-bl
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 spec:
   host: interaction
   trafficPolicy:
@@ -89,9 +89,9 @@ apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
   name: web
-  namespace: fake-tiktok
+  namespace: micro-bl
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 spec:
   host: web
   trafficPolicy:

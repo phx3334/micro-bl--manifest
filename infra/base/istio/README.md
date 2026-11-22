@@ -13,7 +13,7 @@ helm upgrade --install istio-ingressgateway istio/gateway -n istio-system
 纳管业务命名空间（开启 sidecar 自动注入）：
 
 ```bash
-kubectl label namespace fake-tiktok istio-injection=enabled
+kubectl label namespace micro-bl istio-injection=enabled
 ```
 
 ## 南北向路由资源（kustomize 管理）
@@ -23,7 +23,7 @@ kubectl label namespace fake-tiktok istio-injection=enabled
 | 资源 | 位置 | 命名空间 | 说明 |
 |------|------|----------|------|
 | Gateway | [gateway.yaml](gateway.yaml) | `istio-system` | 必须放在 istiod 的配置命名空间，否则 ingressgateway 不认 |
-| VirtualService | [virtualservice.yaml](virtualservice.yaml) | `fake-tiktok` | 四条路由，前缀 `/` 必须放最后一条 |
+| VirtualService | [virtualservice.yaml](virtualservice.yaml) | `micro-bl` | 四条路由，前缀 `/` 必须放最后一条 |
 
 ```bash
 # 部署前先把 infra/overlays/prod/patches/istio-gateway-host.yaml 和
@@ -57,14 +57,14 @@ Gateway、VirtualService、PeerAuthentication。安装顺序与版本矩阵见 `
 ## mTLS 与网格范围
 
 [peer-authentication.yaml](peer-authentication.yaml)：mesh 级 STRICT，**唯一一条策略、无任何
-端口级例外**——注入范围内（fake-tiktok）没有需要网格外明文抓取的端口（业务指标走 OTLP push）；
+端口级例外**——注入范围内（micro-bl）没有需要网格外明文抓取的端口（业务指标走 OTLP push）；
 中间件与可观测性整体不注入，它们的端口天然可达，不需要例外。
 
 注入范围（[namespaces.yaml](../namespaces.yaml)）：
 
 | 命名空间 | sidecar | 原因 |
 |---|---|---|
-| fake-tiktok | ✅ | 业务互调走自动 mTLS + L7 治理；到中间件的加密由应用层单向 TLS 承担 |
+| micro-bl | ✅ | 业务互调走自动 mTLS + L7 治理；到中间件的加密由应用层单向 TLS 承担 |
 | middleware | ❌ | mysql/redis/kafka/minio 全部应用层单向 TLS，端到端覆盖 sidecar 管不到的路径；非 HTTP 协议从网格只拿到 L4 统计（exporter 已覆盖），注入只剩双重加密和抓取例外的成本 |
 | observability | ❌ | Prometheus 要在网格外抓取，注入后对 K8s API 访问要额外 exclude |
 | istio-system | chart 自管 | istiod / gateway |

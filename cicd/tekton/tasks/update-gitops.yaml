@@ -22,7 +22,7 @@ metadata:
   name: update-gitops
   namespace: platform-system
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 spec:
   params:
     - name: infra-repo-url

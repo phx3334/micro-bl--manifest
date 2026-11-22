@@ -66,7 +66,7 @@ metadata:
     tekton.dev/tags: git
   labels:
     app.kubernetes.io/version: "1.7.1"
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
   name: git-clone
   namespace: platform-system
 spec:

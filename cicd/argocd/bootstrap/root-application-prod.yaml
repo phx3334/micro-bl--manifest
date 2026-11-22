@@ -4,7 +4,7 @@ metadata:
   name: root
   namespace: argocd
 spec:
-  project: fake-tiktok
+  project: micro-bl
   source:
     repoURL: https://github.com/phx3334/micro-bl--manifest.git
     targetRevision: main

@@ -9,7 +9,7 @@ metadata:
   name: github-push
   namespace: platform-system
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 spec:
   params:
     - name: repo-url

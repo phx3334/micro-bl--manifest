@@ -9,10 +9,10 @@
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
-  name: fake-tiktok
+  name: micro-bl
   namespace: argocd
 spec:
-  description: fake-tiktok —— 仓库 / 目标命名空间 / 集群级资源三重白名单
+  description: micro-bl —— 仓库 / 目标命名空间 / 集群级资源三重白名单
 
   # 只允许从 manifest 仓库拉取；换仓库时同步改这里和四个 Application
   sourceRepositories:
@@ -23,7 +23,7 @@ spec:
     - server: https://kubernetes.default.svc
       namespace: argocd          # root Application 创建子 Application
     - server: https://kubernetes.default.svc
-      namespace: fake-tiktok     # 业务
+      namespace: micro-bl     # 业务
     - server: https://kubernetes.default.svc
       namespace: middleware      # mysql / redis / kafka / minio
     - server: https://kubernetes.default.svc

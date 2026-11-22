@@ -6,7 +6,7 @@
 
 - Chart：`bitnami/minio`
 - Service 名固定为 `minio`
-- 应用启动时自动创建 bucket（默认 `fake-tiktok`）
+- 应用启动时自动创建 bucket（默认 `micro-bl`）
 - 生产建议媒体桶与 Velero 备份桶分离、独立凭据
 - `APP_MINIO_ENDPOINT` 必须同时保证 Pod 与浏览器可达：
   - Pod 内可用 `minio.middleware:9000`（ClusterIP）
@@ -16,7 +16,7 @@
   需要管理界面时用 `mc` 客户端或独立部署 Object Browser；旧版 chart 可补 NodePort `30901`。
 
 ```bash
-# 凭据/容量/桶清单在 values-prod.yaml（与 fake-tiktok-credentials 的
+# 凭据/容量/桶清单在 values-prod.yaml（与 micro-bl-credentials 的
 # APP_MINIO_ACCESS_KEY / APP_MINIO_SECRET_KEY 必须一致），
 # 用 -f 而不是 --set：避免凭据进 shell 历史
 helm upgrade --install minio bitnami/minio -n middleware \
@@ -29,7 +29,7 @@ Secret 由 SealedSecret 注入（键 `rootUser` / `rootPassword`），流程见
 
 ## 桶
 
-`defaultBuckets` 一次建齐：`fake-tiktok` 与 `tempo-prod`
+`defaultBuckets` 一次建齐：`micro-bl` 与 `tempo-prod`
 （`tempo-prod` 必须与 `observability/tempo/overlays/prod` 的 `TEMPO_S3_BUCKET` 对应）。
 业务桶业务代码启动时也会自建，这里双保险。
 
@@ -39,7 +39,7 @@ MinIO **服务端自带** `/minio/v2/metrics/cluster`，与 API 共用 9000 端�
 
 - 开启：base values 的 `extraEnvVars` 设 `MINIO_PROMETHEUS_AUTH_TYPE=public`（免鉴权，集群内抓取）；
 - 抓取：[servicemonitor-minio.yaml](../../../observability/prometheus/manifests/servicemonitor-minio.yaml) 指向 minio Service 的 `api` 端口，30s 一次；
-- 看板/告警：`fake-tiktok 中间件` 看板的容量/节点面板，`MinioCapacityLow`（剩余容量 < 20%）、`MinioNodesOffline` 告警——**容量类问题不可自愈，是对象存储生产告警的基线**，业务 5xx 只能反映急性故障。
+- 看板/告警：`micro-bl 中间件` 看板的容量/节点面板，`MinioCapacityLow`（剩余容量 < 20%）、`MinioNodesOffline` 告警——**容量类问题不可自愈，是对象存储生产告警的基线**，业务 5xx 只能反映急性故障。
 
 收紧方案（对外暴露的环境）：`auth_type` 改 `cfg`，用 `mc admin prometheus generate` 生成 token 挂 Secret，
 ServiceMonitor 的 endpoint 配 `authorization.bearerFromSecret`。

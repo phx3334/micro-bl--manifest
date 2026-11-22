@@ -5,7 +5,7 @@
 # 用 ConfigMap 而不是 Secret：内容是公开证书，没必要加密，也方便 ServiceMonitor 直接引用。
 #
 # 消费方：
-#   fake-tiktok   → 业务 Pod 挂 /certs/internal-ca.crt，验 mysql/redis/kafka/minio
+#   micro-bl   → 业务 Pod 挂 /certs/internal-ca.crt，验 mysql/redis/kafka/minio
 #   middleware    → redis_exporter 挂同一份（rediss:// 验根，见 middleware/redis values）
 #   observability → Tempo 挂同一份（S3 走 https）、ServiceMonitor 用 tlsConfig.ca 引用、
 #                   kafka-exporter 验 kafka.middleware:9092（应用层单向 TLS）
@@ -21,7 +21,7 @@ metadata:
   name: internal-ca-distributor
   namespace: cert-manager
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 ---
 # 源：只允许读根 CA 这一个 Secret
 apiVersion: rbac.authorization.k8s.io/v1
@@ -30,11 +30,11 @@ metadata:
   name: internal-ca-distributor
   namespace: cert-manager
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 rules:
   - apiGroups: [""]
     resources: ["secrets"]
-    resourceNames: ["fake-tiktok-ca"]
+    resourceNames: ["micro-bl-ca"]
     verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -43,7 +43,7 @@ metadata:
   name: internal-ca-distributor
   namespace: cert-manager
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -53,14 +53,14 @@ subjects:
     name: internal-ca-distributor
     namespace: cert-manager
 ---
-# 目标 fake-tiktok：只允许写 internal-ca 这一个 ConfigMap
+# 目标 micro-bl：只允许写 internal-ca 这一个 ConfigMap
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: internal-ca-writer
-  namespace: fake-tiktok
+  namespace: micro-bl
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 rules:
   - apiGroups: [""]
     resources: ["configmaps"]
@@ -74,9 +74,9 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: internal-ca-writer
-  namespace: fake-tiktok
+  namespace: micro-bl
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -93,7 +93,7 @@ metadata:
   name: internal-ca-writer
   namespace: observability
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 rules:
   - apiGroups: [""]
     resources: ["configmaps"]
@@ -109,7 +109,7 @@ metadata:
   name: internal-ca-writer
   namespace: observability
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -126,7 +126,7 @@ metadata:
   name: internal-ca-writer
   namespace: middleware
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 rules:
   - apiGroups: [""]
     resources: ["configmaps"]
@@ -142,7 +142,7 @@ metadata:
   name: internal-ca-writer
   namespace: middleware
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -158,7 +158,7 @@ metadata:
   name: internal-ca-distributor
   namespace: cert-manager
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 spec:
   schedule: "*/30 * * * *"
   concurrencyPolicy: Forbid
@@ -183,14 +183,14 @@ spec:
                   rm -rf "$work" && mkdir -p "$work"
 
                   # 根 CA 还没签发（cert-manager 异步 reconcile）就跳过本轮
-                  if ! kubectl -n cert-manager get secret fake-tiktok-ca >/dev/null 2>&1; then
-                    echo "fake-tiktok-ca 尚未生成，跳过本轮"
+                  if ! kubectl -n cert-manager get secret micro-bl-ca >/dev/null 2>&1; then
+                    echo "micro-bl-ca 尚未生成，跳过本轮"
                     exit 0
                   fi
-                  kubectl -n cert-manager get secret fake-tiktok-ca \
+                  kubectl -n cert-manager get secret micro-bl-ca \
                     -o jsonpath='{.data.ca\.crt}' | base64 -d > "$work/ca.crt"
 
-                  for ns in fake-tiktok middleware observability; do
+                  for ns in micro-bl middleware observability; do
                     kubectl -n "$ns" create configmap internal-ca \
                       --from-file=ca.crt="$work/ca.crt" \
                       --dry-run=client -o yaml | kubectl apply -f -

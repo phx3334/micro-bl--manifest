@@ -10,7 +10,7 @@ ansible/            # 00-preflight → 01-provision → 02-kubeadm → 03-bootst
 infra/              # Cilium / Istio / cert-manager / sealed-secrets / middleware / overlays/prod
 observability/      # Prometheus / Tempo / Loki / Grafana / otel-collector / kafka-exporter
 cicd/               # Harbor values / Tekton 资源 / ArgoCD bootstrap 与 prod Applications
-apps/fake-tiktok/   # 业务 Helm Chart（只有 values-prod.yaml）
+apps/micro-bl/   # 业务 Helm Chart（只有 values-prod.yaml）
 ```
 
 ## 前置
@@ -34,7 +34,7 @@ terraform apply
 - `terraform.tfstate` 是本地文件且被 gitignore；**不要丢**，演示结束要靠它 `terraform destroy`，否则实例/CLB 会继续计费。
 - 公网 IP 不是 EIP：实例 stop/start 后可能变化，Harbor/MinIO 证书 SAN、Gateway host、Tekton registry 都会失效。演示当天不要 stop/start；需要暂停就改用 EIP。
 - `availability_zone` 自动选择只按 worker 规格过滤；如果 master 规格在该 AZ 无货，手动指定 `availability_zone`。
-- `key_pair_name` 默认 `fake-tiktok`，地域内已有同名密钥对时需改名或 import。
+- `key_pair_name` 默认 `micro-bl`，地域内已有同名密钥对时需改名或 import。
 
 Terraform 会生成 `ansible/inventory/hosts.ini`（当前为空文件，apply 后才有内容）。
 
@@ -54,8 +54,8 @@ grep -rn "REPLACE_WITH_SERVER_IP" .
 
 重点文件：
 
-- `apps/fake-tiktok/values.yaml`：`images.registry`
-- `apps/fake-tiktok/values-prod.yaml`：`config.minio.endpoint`
+- `apps/micro-bl/values.yaml`：`images.registry`
+- `apps/micro-bl/values-prod.yaml`：`config.minio.endpoint`
 - `infra/overlays/prod/patches/istio-gateway-host.yaml`
 - `infra/overlays/prod/patches/istio-virtualservice-host.yaml`
 - `infra/cert-manager/manifests/harbor-certificate.yaml`
@@ -88,7 +88,7 @@ ArgoCD 默认同步 prod，业务/MinIO/Tempo 都引用外部 Secret。仓库里
 
 ```bash
 # 1) 业务 6 个键
-kubectl -n fake-tiktok create secret generic fake-tiktok-credentials \
+kubectl -n micro-bl create secret generic micro-bl-credentials \
   --from-literal=APP_JWT_ACCESS_TOKEN_SECRET="$(openssl rand -hex 32)" \
   --from-literal=APP_JWT_REFRESH_TOKEN_SECRET="$(openssl rand -hex 32)" \
   --from-literal=APP_DATABASE_PASSWORD="<mysql-phx-password>" \
@@ -163,11 +163,11 @@ prod 的 otel-collector 固定 1 副本：`tail_sampling` + `spanmetrics` 是进
 
 ## 7. Harbor 与 Tekton
 
-- Harbor：建项目 `fake-tiktok`；建 `robot$push`（push/pull）和 `robot$pull`（pull）；robot token 分别用于 `harbor-push` 与 `harbor-pull`。
+- Harbor：建项目 `micro-bl`；建 `robot$push`（push/pull）和 `robot$pull`（pull）；robot token 分别用于 `harbor-push` 与 `harbor-pull`。
 - Tekton / 业务拉镜像凭据（不要提交真实值）：
 
 ```bash
-kubectl -n fake-tiktok create secret docker-registry harbor-pull \
+kubectl -n micro-bl create secret docker-registry harbor-pull \
   --docker-server="<master1-public-ip>:30003" \
   --docker-username='robot$pull' --docker-password="<harbor-pull-robot-token>"
 
@@ -203,7 +203,7 @@ git commit -m "prod only"
 git push origin main
 ```
 
-然后在 ArgoCD 里确认 `root` → `platform-infra` / `apps-fake-tiktok` 同步成功。首次业务 Pod 需要等 Tekton 构建出 commit SHA 镜像并回写 `apps/fake-tiktok/values-prod.yaml` 后才能 Ready。
+然后在 ArgoCD 里确认 `root` → `platform-infra` / `apps-micro-bl` 同步成功。首次业务 Pod 需要等 Tekton 构建出 commit SHA 镜像并回写 `apps/micro-bl/values-prod.yaml` 后才能 Ready。
 
 首次部署是空库：`values-prod.yaml` 的 `autoMigrate` 已设为 `true`。如果想避免两个副本并发跑 DDL，
 可以先把三个服务的 `replicas` 临时改成 1，建表完成后恢复 2 并把 `autoMigrate` 改回 `false`。
@@ -212,13 +212,13 @@ git push origin main
 
 ```bash
 kubectl get nodes -o wide
-kubectl -n fake-tiktok get pods
-kubectl -n fake-tiktok get svc
+kubectl -n micro-bl get pods
+kubectl -n micro-bl get svc
 curl -k https://<master1-ip>:30003/api/v2.0/healthz
 curl -s http://<master1-ip>:30082/healthz
 ```
 
-浏览器播放 MinIO 视频前，把内部根 CA（`fake-tiktok-ca` 的 `ca.crt`）导入系统/浏览器信任库；否则 `https://<master1-ip>:30900/...` 会证书告警。
+浏览器播放 MinIO 视频前，把内部根 CA（`micro-bl-ca` 的 `ca.crt`）导入系统/浏览器信任库；否则 `https://<master1-ip>:30900/...` 会证书告警。
 
 ## 10. 销毁
 

@@ -1,5 +1,5 @@
 # ArgoCD：引导层，自己不由 GitOps 管理。
-# 安装后 apply AppProject + root Application，之后 infra/overlays/prod 与 apps/fake-tiktok
+# 安装后 apply AppProject + root Application，之后 infra/overlays/prod 与 apps/micro-bl
 # 全部由它接管。
 ---
 - name: 添加 Argo Helm 仓库

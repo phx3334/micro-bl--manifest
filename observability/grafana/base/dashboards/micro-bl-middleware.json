@@ -255,11 +255,11 @@
   ],
   "refresh": "30s",
   "schemaVersion": 39,
-  "tags": ["fake-tiktok", "middleware"],
+  "tags": ["micro-bl", "middleware"],
   "templating": { "list": [] },
   "time": { "from": "now-1h", "to": "now" },
   "timezone": "browser",
-  "title": "fake-tiktok 中间件",
-  "uid": "fake-tiktok-middleware",
+  "title": "micro-bl 中间件",
+  "uid": "micro-bl-middleware",
   "version": 1
 }

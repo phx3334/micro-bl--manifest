@@ -60,7 +60,7 @@ kubectl -n observability rollout restart ds/otel-collector-agent
 | gateway | 13133 | health_check（`/health`） |
 | agent | 13133 | health_check（`/health`） |
 
-业务侧 `APP_OTEL_ENDPOINT` 必须是 `otel-collector.observability:4317`——业务 Pod 在 `fake-tiktok` 命名空间，跨命名空间短名不解析。
+业务侧 `APP_OTEL_ENDPOINT` 必须是 `otel-collector.observability:4317`——业务 Pod 在 `micro-bl` 命名空间，跨命名空间短名不解析。
 
 ## 验证
 

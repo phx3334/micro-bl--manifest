@@ -2,7 +2,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 # 特意不设 namespace 转换器：Gateway 必须落在 istiod 的配置命名空间（istio-system），
-# VirtualService 落在业务命名空间（fake-tiktok）。一旦被统一改写，Gateway 不会被 ingressgateway 选中。
+# VirtualService 落在业务命名空间（micro-bl）。一旦被统一改写，Gateway 不会被 ingressgateway 选中。
 resources:
   - namespaces.yaml
   # 默认 SA 收紧（关闭 token 自动挂载），见 rbac/ 文件头说明

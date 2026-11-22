@@ -11,8 +11,8 @@
 #   3) helm install harbor（本文件）
 #
 # 四个必须人工做的动作（chart 不管）：
-#   1) 建项目 fake-tiktok（与 apps chart 的 images.registry 路径一致），否则 push 报 PROJECT_NOT_FOUND；
-#   2) 建 robot 账号（权限：项目 fake-tiktok 的 push/pull），凭据写进 Tekton 的 harbor-push Secret；
+#   1) 建项目 micro-bl（与 apps chart 的 images.registry 路径一致），否则 push 报 PROJECT_NOT_FOUND；
+#   2) 建 robot 账号（权限：项目 micro-bl 的 push/pull），凭据写进 Tekton 的 harbor-push Secret；
 #   3) 节点 containerd 信任内部 CA（Ansible 负责，见文末注释），否则 kubelet 拉不动镜像。
 #   4) 配 retention/quota（缓存镜像治理见 README.md，retention 不能误删 buildcache-*）。
 

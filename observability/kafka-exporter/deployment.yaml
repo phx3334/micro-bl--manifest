@@ -82,7 +82,7 @@ kind: ServiceMonitor
 metadata:
   name: kafka-exporter
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 spec:
   selector:
     matchLabels:

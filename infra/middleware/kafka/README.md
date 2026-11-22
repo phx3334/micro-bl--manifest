@@ -8,7 +8,7 @@
 - Service 名固定为 `kafka`，应用侧 `APP_KAFKA_BROKERS=kafka.middleware:9092`
 - 客户端 listener 是 SSL（单向 TLS），broker 间/controller 保持明文
 - `listeners.client.advertisedHost` 必须指向 `kafka.middleware.svc.cluster.local`：
-  chart 默认短名 `kafka:9092` 在 `fake-tiktok` / `observability` 命名空间解析不到
+  chart 默认短名 `kafka:9092` 在 `micro-bl` / `observability` 命名空间解析不到
 - Demo：单节点 KRaft，无 ZooKeeper
 - 允许自动创建 topic（应用启动时会创建四个 topic）
 - 生产：3 broker 以上，副本数 3，开启 min.insync.replicas

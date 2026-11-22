@@ -4,4 +4,4 @@ kind: Namespace
 metadata:
   name: istio-system
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl

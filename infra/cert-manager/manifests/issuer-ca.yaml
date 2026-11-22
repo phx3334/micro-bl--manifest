@@ -1,7 +1,7 @@
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
-  name: fake-tiktok-ca-issuer
+  name: micro-bl-ca-issuer
 spec:
   ca:
-    secretName: fake-tiktok-ca
+    secretName: micro-bl-ca

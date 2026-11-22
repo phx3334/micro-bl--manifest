@@ -15,7 +15,7 @@ worker:
 secret:
   # prod 凭据不随仓库分发：引用外部创建的 Secret（键名契约见 infra/credentials/README.md）
   # 创建方式：SealedSecret（推荐）或 CI/ansible 注入；缺失时 Pod 会停在 CreateContainerConfigError
-  existingSecret: fake-tiktok-credentials
+  existingSecret: micro-bl-credentials
 
 config:
   redis:

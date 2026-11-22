@@ -6,7 +6,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "0"
 spec:
-  project: fake-tiktok
+  project: micro-bl
   source:
     repoURL: https://github.com/phx3334/micro-bl--manifest.git
     targetRevision: main

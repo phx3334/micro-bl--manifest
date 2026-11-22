@@ -1,4 +1,4 @@
-# 统一凭据 phx / 147258（必须与 apps/fake-tiktok/values-prod.yaml 的
+# 统一凭据 phx / 147258（必须与 apps/micro-bl/values-prod.yaml 的
 # secret.data.databasePassword 一致，否则业务 Pod 全部连不上库）
 auth:
   username: phx

@@ -33,7 +33,7 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: fake-tiktok
+  name: micro-bl
   labels:
     purpose: application
     # 业务三服务 + worker + web 全部注入：服务间 gRPC 调用、到中间件的访问都自动 mTLS

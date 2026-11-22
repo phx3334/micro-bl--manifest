@@ -13,15 +13,15 @@
 apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
 metadata:
-  name: fake-tiktok
-  namespace: fake-tiktok
+  name: micro-bl
+  namespace: micro-bl
 spec:
   hosts:
     - "*"
   gateways:
-    # 必须带命名空间：本 VS 在 fake-tiktok，Gateway 在 istio-system，
-    # 裸名只会找 fake-tiktok/fake-tiktok-gateway（不存在），入口路由会整条失效
-    - istio-system/fake-tiktok-gateway
+    # 必须带命名空间：本 VS 在 micro-bl，Gateway 在 istio-system，
+    # 裸名只会找 micro-bl/micro-bl-gateway（不存在），入口路由会整条失效
+    - istio-system/micro-bl-gateway
   http:
     # ===================== user-svc =====================
     # GET：验证码、用户信息、主页、关注/粉丝列表 —— 全部幂等，可安全重试

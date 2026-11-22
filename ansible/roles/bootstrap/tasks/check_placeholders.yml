@@ -15,8 +15,8 @@
     src: "{{ infra_repo }}/{{ item }}"
     dest: "{{ ansible_workdir }}/check/"
   loop:
-    - apps/fake-tiktok/values.yaml
-    - apps/fake-tiktok/values-prod.yaml
+    - apps/micro-bl/values.yaml
+    - apps/micro-bl/values-prod.yaml
     - infra/cert-manager/manifests
     - infra/overlays/prod
     - cicd/tekton/triggers/trigger-template.yaml

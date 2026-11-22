@@ -6,7 +6,7 @@ metadata:
   name: tekton-triggers-create-pipelinerun
   namespace: platform-system
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 rules:
   - apiGroups: ["tekton.dev"]
     resources: ["pipelineruns"]
@@ -27,7 +27,7 @@ metadata:
   name: tekton-triggers-create-pipelinerun
   namespace: platform-system
   labels:
-    app.kubernetes.io/part-of: fake-tiktok
+    app.kubernetes.io/part-of: micro-bl
 subjects:
   - kind: ServiceAccount
     name: tekton-triggers-sa

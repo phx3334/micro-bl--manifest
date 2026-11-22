@@ -16,7 +16,7 @@ auth:
   rootUser: phx
   rootPassword: ""
 
-defaultBuckets: fake-tiktok
+defaultBuckets: micro-bl
 
 persistence:
   enabled: true

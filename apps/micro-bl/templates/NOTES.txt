@@ -1,4 +1,4 @@
-fake-tiktok 已部署到命名空间 {{ include "fake-tiktok.namespace" . }}。
+micro-bl 已部署到命名空间 {{ include "micro-bl.namespace" . }}。
 
 业务组件：
   user / video / interaction  HTTP + gRPC 双端口 Service
@@ -7,11 +7,11 @@ fake-tiktok 已部署到命名空间 {{ include "fake-tiktok.namespace" . }}。
 
 入口：
   Istio 侧经 istio-ingressgateway 暴露（Gateway + VirtualService）
-  本地调试：kubectl -n {{ include "fake-tiktok.namespace" . }} port-forward svc/web 8080:80
+  本地调试：kubectl -n {{ include "micro-bl.namespace" . }} port-forward svc/web 8080:80
 
 检查：
-  kubectl -n {{ include "fake-tiktok.namespace" . }} get pods
-  kubectl -n {{ include "fake-tiktok.namespace" . }} get svc
+  kubectl -n {{ include "micro-bl.namespace" . }} get pods
+  kubectl -n {{ include "micro-bl.namespace" . }} get svc
 
 注意：
   - 业务镜像需先由 micro-bilibili 仓库构建并推送到 {{ .Values.images.registry }}
