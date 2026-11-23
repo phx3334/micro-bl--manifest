@@ -10,7 +10,13 @@ services:
     replicas: 2
 
 worker:
-  replicas: 2
+  # 上限必须 <= video.* topic 分区数（见 infra/middleware/kafka/values.yaml 的 num.partitions）
+  counters:
+    replicas: 2
+    maxReplicas: 6
+  transcode:
+    replicas: 2
+    maxReplicas: 6
 
 secret:
   # prod 凭据不随仓库分发：引用外部创建的 Secret（键名契约见 infra/credentials/README.md）

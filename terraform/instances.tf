@@ -41,6 +41,8 @@ resource "alicloud_instance" "worker" {
   private_ip           = local.worker_private_ips[count.index]
   key_name             = alicloud_key_pair.this.key_pair_name
   instance_charge_type = "PostPaid"
+  # CSI Controller/Node 通过实例 RAM 角色访问 ECS OpenAPI，不在集群里放 AK
+  role_name = alicloud_ram_role.csi.role_name
 
   internet_charge_type       = "PayByTraffic"
   internet_max_bandwidth_out = var.internet_max_bandwidth_out

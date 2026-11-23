@@ -1,6 +1,7 @@
 # 平台组件（存储 / 监控必需件 / 证书 / Istio / Harbor / Tekton / ArgoCD）
-# 用法：ansible-playbook playbooks/03-install-bootstrap.yml
 # 只想验证控制面时：-e install_istio=false -e install_harbor=false ...
+#`hosts.toml` 是 containerd v1.5+ 的配置文件，告诉 containerd：访问这个仓库地址时，使用指定 CA 证书校验服务端证书，不再依赖系统根证书库。
+#handler：被 notify 触发，只有配置文件改动才重启容器运行时，符合 Ansible 最佳实践。
 ---
 - name: 平台组件 bootstrap（第一个 master）
   hosts: masters

@@ -1,0 +1,36 @@
+# KEDA：事件驱动扩缩容（worker 的 Kafka lag 触发 + 业务的 CPU 触发）。
+# 必须在 metrics-server 之后：cpu trigger 依赖 Metrics API；
+# 必须在 ArgoCD 之前：apps chart 里有 ScaledObject，CRD 不存在时 ArgoCD 同步会失败。
+---
+- name: 添加 KEDA Helm 仓库
+  command: helm repo add --force-update kedacore {{ helm_repos.keda }}
+  changed_when: false
+
+- name: 更新 KEDA 仓库索引
+  command: helm repo update kedacore
+  changed_when: false
+
+- name: 安装 KEDA
+  command:
+    - helm
+    - upgrade
+    - --install
+    - keda
+    - kedacore/keda
+    - --namespace
+    - keda
+    - --create-namespace
+    - --version
+    - "{{ chart_versions.keda }}"
+    - --wait
+    - --timeout
+    - 5m
+
+- name: 等待 keda-operator 就绪
+  command: kubectl -n keda rollout status deployment/keda-operator --timeout=300s
+  changed_when: false
+
+# ScaledObject CRD 必须 Established，否则后续 apply apps chart 时报 "no matches for kind"
+- name: 等待 ScaledObject CRD 就绪
+  command: kubectl wait --for=condition=Established crd/scaledobjects.keda.sh --timeout=120s
+  changed_when: false

@@ -1,5 +1,5 @@
 # cert-manager + 全集群证书链：
-#   micro-bl-ca（根）→ harbor-tls / istio-ca / mysql-tls / redis-tls / kafka-tls / minio-tls
+# micro-bl-ca（根）→ harbor-tls / istio-ca / mysql-tls / redis-tls / kafka-tls / minio-tls
 ---
 - name: 添加 cert-manager Helm 仓库
   command: helm repo add --force-update jetstack {{ helm_repos.jetstack }}

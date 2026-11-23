@@ -1,0 +1,15 @@
+# 只暴露给 MySQL 使用的动态 ESSD StorageClass。
+# 不设为默认 SC，默认仍然是 local-path。
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: alicloud-disk-essd
+provisioner: diskplugin.csi.alibabacloud.com
+parameters:
+  type: cloud_essd
+  performanceLevel: PL1
+# 演示环境用 Delete，避免忘记删 PVC 后云盘继续计费；生产改 Retain。
+reclaimPolicy: Delete
+# Pod 调度到哪个 AZ，就在哪个 AZ 创建云盘
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true

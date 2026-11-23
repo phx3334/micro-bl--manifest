@@ -1,3 +1,6 @@
+#`path.module` = 当前这个 .tf 文件所在的目录
+#`templatefile`：读取模板 `inventory.tpl`，把后面传入的变量渲染填充，生成最终文本
+
 resource "local_file" "ansible_inventory" {
   filename = "${path.module}/../ansible/inventory/hosts.ini"
 

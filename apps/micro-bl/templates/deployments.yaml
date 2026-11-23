@@ -79,39 +79,45 @@ spec:
                 path: internal-ca.crt
 {{- end }}
 
+# worker 拆成两个 Deployment（同一镜像，APP_WORKER_MODE 决定消费范围）：
+#   worker-counters   三个计数消费组 + ZSet 重建 cron
+#   worker-transcode  ffmpeg 转码（CPU 密集）
+# 拆分后单 topic 打爆只扩对应组，负载画像（resources/lag 阈值）也各自独立。
+{{- range $mode := list "counters" "transcode" }}
+{{- $w := index $.Values.worker $mode }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: worker
-  namespace: {{ include "micro-bl.namespace" . }}
+  name: worker-{{ $mode }}
+  namespace: {{ include "micro-bl.namespace" $ }}
   labels:
-    app: worker
-    {{- include "micro-bl.labels" . | nindent 4 }}
+    app: worker-{{ $mode }}
+    {{- include "micro-bl.labels" $ | nindent 4 }}
 spec:
-  replicas: {{ .Values.worker.replicas }}
+  replicas: {{ $w.replicas }}
   selector:
     matchLabels:
-      app: worker
+      app: worker-{{ $mode }}
   template:
     metadata:
       annotations:
         # ConfigMap/Secret 变更后自动滚动，否则 env 不会热更新（改了配置却仍用旧值）
-        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
-        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") $ | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") $ | sha256sum }}
       labels:
-        app: worker
-        {{- include "micro-bl.labels" . | nindent 8 }}
+        app: worker-{{ $mode }}
+        {{- include "micro-bl.labels" $ | nindent 8 }}
     spec:
-      serviceAccountName: {{ include "micro-bl.fullname" . }}-app
-      {{- with .Values.images.pullSecret }}
+      serviceAccountName: {{ include "micro-bl.fullname" $ }}-app
+      {{- with $.Values.images.pullSecret }}
       imagePullSecrets:
         - name: {{ . }}
       {{- end }}
       containers:
         - name: worker
-          image: {{ include "micro-bl.image" (dict "root" . "component" "worker") }}
-          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          image: {{ include "micro-bl.image" (dict "root" $ "component" "worker") }}
+          imagePullPolicy: {{ $.Values.images.pullPolicy }}
           # 健康端口：只给探针用，不承载业务也不被抓取（指标走 OTLP 推送）
           ports:
             - name: worker-health
@@ -134,18 +140,22 @@ spec:
             failureThreshold: 3
           envFrom:
             - configMapRef:
-                name: {{ include "micro-bl.configMapName" . }}
+                name: {{ include "micro-bl.configMapName" $ }}
             - secretRef:
-                name: {{ include "micro-bl.secretRefName" . }}
+                name: {{ include "micro-bl.secretRefName" $ }}
           env:
             - name: APP_DATABASE_DBNAME
-              value: {{ .Values.worker.dbName | quote }}
+              value: {{ $.Values.worker.dbName | quote }}
             - name: APP_DATABASE_AUTO_MIGRATE
               value: "false"
+            # 消费范围开关：counters=三个计数 topic+cron，transcode=转码 topic
+            - name: APP_WORKER_MODE
+              value: {{ $mode | quote }}
+            # ZSet 重建 cron 只放 counters（分布式锁在，但没必要两边各跑一份）
             - name: APP_RUN_CRON
-              value: "true"
+              value: {{ eq $mode "counters" | quote }}
           resources:
-            {{- toYaml .Values.worker.resources | nindent 12 }}
+            {{- toYaml $w.resources | nindent 12 }}
           volumeMounts:
             - name: internal-ca
               mountPath: /certs
@@ -157,3 +167,4 @@ spec:
             items:
               - key: ca.crt
                 path: internal-ca.crt
+{{- end }}

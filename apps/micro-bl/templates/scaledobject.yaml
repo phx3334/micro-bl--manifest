@@ -1,0 +1,102 @@
+# 扩缩容统一走 KEDA ScaledObject（替代原手写 HPA）。
+# KEDA 在每个 ScaledObject 背后自动生成并托管一个 HPA，执行者仍是 HPA controller；
+# 收益是业务/worker 共用一种对象，且 worker 能按 Kafka lag 事件驱动扩容（CPU 看不出来的积压）。
+# 依赖：bootstrap 已装 KEDA（CRD scaledobjects.keda.sh，见 ansible/roles/bootstrap/tasks/keda.yml）。
+#
+# 通用防抖参数：
+#   pollingInterval  每 30s 问一次指标源（Kafka lag / CPU）
+#   cooldownPeriod   lag 降下去后持续 300s 低于阈值才缩容，防止反复横跳
+#   fallback         指标源连续 3 次取不到（Kafka 连不上/metrics-server 挂）时
+#                    把副本钉到 replicaCount，避免 HPA 拿着过期指标乱扩或停在随机值。
+#                    注意：activationLagThreshold 在 minReplicaCount>=1 时被 KEDA 忽略，
+#                    防抖动只能靠 cooldownPeriod，别配那个。
+{{- range $name, $svc := .Values.services }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ $name }}
+  namespace: {{ include "micro-bl.namespace" $ }}
+  labels:
+    app: {{ $name }}
+    {{- include "micro-bl.labels" $ | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ $name }}
+  minReplicaCount: {{ $.Values.hpa.minReplicas }}
+  maxReplicaCount: {{ $.Values.hpa.maxReplicas }}
+  pollingInterval: 30
+  cooldownPeriod: 300
+  triggers:
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: {{ $.Values.hpa.targetCPUUtilizationPercentage | quote }}
+{{- end }}
+
+{{/*
+worker 拆两个 ScaledObject（对应两个 Deployment，见 templates/deployments.yaml）：
+  worker-counters   3 个计数消费组 trigger，阈值 500——转码积压不会把计数组也拉大
+  worker-transcode  转码消费组 trigger，阈值 10——转码单条分钟级，积压就该加人
+每副本目标积压：期望副本 ≈ ceil(总lag/阈值)，封顶 maxReplicaCount 与 topic 分区数。
+
+TriggerAuthentication：Kafka 客户端 listener 是单向 TLS，broker 证书由内部根 CA 签发，
+KEDA 的 ca 参数吃 PEM 内容（AppendCertsFromPEM），internal-ca ConfigMap 的 ca.crt 正好是内容——
+由 internal-ca-distributor CronJob 分发到 micro-bl，与本对象同命名空间。两个 ScaledObject 共用。
+*/}}
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: worker-kafka-tls
+  namespace: {{ include "micro-bl.namespace" . }}
+  labels:
+    app.kubernetes.io/component: worker
+    {{- include "micro-bl.labels" . | nindent 4 }}
+spec:
+  configMapTargetRef:
+    - parameter: ca
+      name: internal-ca
+      key: ca.crt
+{{- range $mode := list "counters" "transcode" }}
+{{- $w := index $.Values.worker $mode }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: worker-{{ $mode }}
+  namespace: {{ include "micro-bl.namespace" $ }}
+  labels:
+    app: worker-{{ $mode }}
+    {{- include "micro-bl.labels" $ | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: worker-{{ $mode }}
+  # minReplicaCount 必须 >= 1：counters 侧有 ZSet 重建 cron；transcode 侧 min=0 时
+  # 消费组若无已提交 offset，KEDA 可能发现不了 topic 而扩不起来。
+  minReplicaCount: {{ $w.replicas }}
+  maxReplicaCount: {{ $w.maxReplicas }}
+  pollingInterval: 30
+  cooldownPeriod: 300
+  # Kafka 连不上（broker 挂/TLS 证书过期/网络分区）时的兜底：
+  # 连续 3 次取不到 lag 就把副本钉到 2（须落在 [min,max] 区间内），
+  # 而不是让 HPA 拿着永远不过期的旧指标继续按残值扩缩。
+  fallback:
+    failureThreshold: 3
+    replicaCount: 2
+  triggers:
+    {{- range $c := $w.consumers }}
+    - type: kafka
+      metadata:
+        bootstrapServers: {{ $.Values.config.kafka.brokers }}
+        consumerGroup: {{ $c.group }}
+        topic: {{ $c.topic }}
+        lagThreshold: {{ $c.lagThreshold | quote }}
+        tls: "enable"
+      authenticationRef:
+        name: worker-kafka-tls
+    {{- end }}
+{{- end }}

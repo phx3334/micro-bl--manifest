@@ -2,9 +2,9 @@
 crds:
   enabled: true
 
-# 指标：当前 Prometheus 没抓 cert-manager，先关掉，避免无意义端口
+
 prometheus:
-  enabled: false
+  enabled: true
 
 resources:
   requests:

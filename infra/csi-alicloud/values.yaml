@@ -1,0 +1,87 @@
+# 阿里云云盘 CSI：只启用 disk 驱动，给 MySQL 提供一块动态 ESSD。
+# 其他组件继续使用 local-path，避免十几块小云盘和额外的清理成本。
+#
+# 节点侧说明：
+#   - workers 的 kubelet root 是 /data/kubelet（见 ansible/inventory/group_vars/workers.yml）
+#   - masters 保持 /var/lib/kubelet，CSI node plugin 只调度到 worker
+#   - 实例已绑定 RAM 角色 micro-bl-csi（terraform/ram.tf），不需要在集群里放 AK
+
+controller:
+  replicas: 1
+  pdb:
+    enabled: false
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: node-role.kubernetes.io/control-plane
+              operator: DoesNotExist
+            - key: alibabacloud.com/is-edge-worker
+              operator: NotIn
+              values:
+                - "true"
+
+plugin:
+  enabled: true
+
+csi:
+  disk:
+    enabled: true
+    controller:
+      enabled: true
+  nas:
+    enabled: false
+  oss:
+    enabled: false
+  local:
+    enabled: false
+  bmcpfs:
+    enabled: false
+  ens:
+    enabled: false
+  customfuse:
+    enabled: false
+
+nodePools:
+  default:
+    pluginname: csi-plugin
+    nodeSelectorTerms:
+      - matchExpressions:
+          - key: type
+            operator: NotIn
+            values:
+              - virtual-kubelet
+          - key: node-role.kubernetes.io/control-plane
+            operator: DoesNotExist
+
+defaultStorageClass:
+  enabled: false
+
+defaultVolumeSnapshotClass:
+  enabled: false
+
+volumeSnapshot:
+  controller:
+    enabled: false
+
+deploy:
+  # 自建 kubeadm 集群，不是 ACK
+  ack: false
+  ecs: true
+  # 必须与 terraform.tfvars 的 region 保持一致；换地域时同时改下面的 images 地址
+  regionID: cn-hangzhou
+  network: vpc
+  kubeletRootDir: /data/kubelet
+
+  # 使用 ECS 实例 RAM 角色，不挂 AccessKey Secret
+  accessKey:
+    enabled: false
+
+  labeler:
+    enabled: false
+
+images:
+  # network=vpc 时使用 registryVPC；若 VPC 内拉不到镜像，改成 network=public
+  # 并使用上面的 registry 地址。
+  registry: registry-cn-hangzhou.ack.aliyuncs.com
+  registryVPC: registry-cn-hangzhou-vpc.ack.aliyuncs.com

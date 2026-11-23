@@ -35,6 +35,8 @@ terraform apply
 - 公网 IP 不是 EIP：实例 stop/start 后可能变化，Harbor/MinIO 证书 SAN、Gateway host、Tekton registry 都会失效。演示当天不要 stop/start；需要暂停就改用 EIP。
 - `availability_zone` 自动选择只按 worker 规格过滤；如果 master 规格在该 AZ 无货，手动指定 `availability_zone`。
 - `key_pair_name` 默认 `micro-bl`，地域内已有同名密钥对时需改名或 import。
+- Terraform 会创建 CSI 专用 RAM 角色 `micro-bl-csi` 并绑定到节点；RAM 用户需要临时具备创建角色/策略的权限（例如 `AliyunRAMFullAccess`），否则 apply 会在 `alicloud_ram_role` 处失败。
+- MySQL 使用动态 ESSD，云盘不在 Terraform state 里；`terraform destroy` 前先删除 MySQL PVC/PV，确认阿里云控制台没有残留云盘。
 
 Terraform 会生成 `ansible/inventory/hosts.ini`（当前为空文件，apply 后才有内容）。
 
@@ -74,7 +76,9 @@ ansible-playbook playbooks/02-bootstrap-kubeadm.yml
 ansible-playbook playbooks/03-install-bootstrap.yml
 ```
 
-`03` 会安装：local-path、metrics-server、cert-manager + 内部 CA、sealed-secrets、Istio、Harbor、Tekton 控制器、ArgoCD，并手动触发一次 `internal-ca-distributor` 和 `istio-cacerts-sync`，保证 istiod 首启前已有内部 CA。
+`03` 会安装：local-path、阿里云云盘 CSI（只启用 disk 驱动）、metrics-server、KEDA、cert-manager + 内部 CA、sealed-secrets、Istio、Harbor、Tekton 控制器、ArgoCD，并手动触发一次 `internal-ca-distributor` 和 `istio-cacerts-sync`，保证 istiod 首启前已有内部 CA。
+
+CSI 只创建 `alicloud-disk-essd` StorageClass，不设为默认；默认仍是 local-path。只有 MySQL 的 PVC 显式使用 `alicloud-disk-essd`，其他组件继续 local-path。想关闭 CSI：`-e install_csi=false`。
 
 ## 4. 基础 prod 凭据（Harbor 相关的在 step 7）
 
@@ -118,10 +122,19 @@ helm repo add bitnami https://charts.bitnami.com/bitnami
 helm repo update
 
 # MySQL：先建 initdb ConfigMap
+# values-prod 会把 PVC 放到 alicloud-disk-essd（03 已安装 CSI）
 kubectl -n middleware create configmap mysql-initdb \
   --from-file=01-databases.sql=infra/middleware/mysql/init/01-databases.sql
 helm upgrade --install mysql bitnami/mysql -n middleware --version <chart-version> \
   -f infra/middleware/mysql/values.yaml -f infra/middleware/mysql/values-prod.yaml
+
+# 观察 MySQL 动态 ESSD 的挂载链路
+kubectl -n middleware get pvc
+kubectl get pv
+kubectl get volumeattachment
+kubectl -n middleware describe pvc data-mysql-0
+kubectl -n middleware describe pod mysql-0
+# 阿里云控制台也能看到对应的 ESSD 云盘
 
 # Redis（sentinel，1 主 2 从）
 helm upgrade --install redis bitnami/redis -n middleware --version 23.1.3 \
@@ -222,9 +235,18 @@ curl -s http://<master1-ip>:30082/healthz
 
 ## 10. 销毁
 
+先删 MySQL 动态云盘，再 destroy 集群：
+
 ```bash
+helm uninstall mysql -n middleware
+kubectl -n middleware delete pvc data-mysql-0
+# 等 PV 变成 Released/Deleted，确认阿里云控制台没有残留 ESSD
+kubectl get pv
+
 cd terraform
 terraform destroy
 ```
 
-确认 ECS、CLB、数据盘、VPC 全部释放；按量付费下最贵的是 3 台 8C16G worker 和 CLB，别只删 ECS 留 CLB。
+CSI 动态创建的云盘不在 Terraform state 里，漏删会继续计费。
+
+确认 ECS、CLB、数据盘、VPC、动态 ESSD 全部释放；按量付费下最贵的是 3 台 8C16G worker 和 CLB，别只删 ECS 留 CLB。

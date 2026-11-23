@@ -26,6 +26,11 @@ output "security_group_id" {
   value       = alicloud_security_group.this.id
 }
 
+output "csi_ram_role_name" {
+  description = "阿里云云盘 CSI 使用的实例 RAM 角色"
+  value       = alicloud_ram_role.csi.name
+}
+
 output "ansible_inventory" {
   description = "自动生成的 ansible inventory 路径"
   value       = local_file.ansible_inventory.filename

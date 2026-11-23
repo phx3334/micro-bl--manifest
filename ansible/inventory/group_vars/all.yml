@@ -39,7 +39,9 @@ ansible_workdir: /root/.micro-bl
 # ── Helm chart 版本（均为仓库里已钉住/文档引用的版本）────────
 chart_versions:
   cilium: "1.18.5"
+  alibaba_csi: "1.37.4"
   metrics_server: "3.14.0"
+  keda: "2.21.1"
   cert_manager: "v1.21.3"
   sealed_secrets: "2.22.0"
   istio: "1.30.6"
@@ -50,16 +52,24 @@ chart_versions:
 helm_repos:
   cilium: https://helm.cilium.io/
   metrics_server: https://kubernetes-sigs.github.io/metrics-server/
+  keda: https://kedacore.github.io/charts/
   jetstack: https://charts.jetstack.io
   sealed_secrets: https://bitnami.github.io/sealed-secrets
   istio: https://istio-release.storage.googleapis.com/charts
   harbor: https://helm.goharbor.io
   argo: https://argoproj.github.io/argo-helm
 
+# 阿里云 CSI chart 没有稳定 Helm repo，直接从 GitHub tag 下载后本地安装
+alibaba_csi_chart_archive: "alibaba-cloud-csi-driver-{{ chart_versions.alibaba_csi }}.tar.gz"
+alibaba_csi_chart_url: "https://github.com/kubernetes-sigs/alibaba-cloud-csi-driver/archive/refs/tags/v{{ chart_versions.alibaba_csi }}.tar.gz"
+alibaba_csi_chart_dir: "{{ ansible_workdir }}/alibaba-cloud-csi-driver-{{ chart_versions.alibaba_csi }}"
+
 # ── 组件开关（按需关掉重组件，例如只想先验证控制面）────────
 install_cilium: true
 install_storage: true
+install_csi: true
 install_metrics_server: true
+install_keda: true
 install_cert_manager: true
 install_sealed_secrets: true
 install_istio: true

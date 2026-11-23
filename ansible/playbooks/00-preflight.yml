@@ -1,5 +1,4 @@
 # 前置检查：不碰任何节点，只验证 inventory 是否由 terraform 正确生成
-# 用法：ansible-playbook playbooks/00-preflight.yml
 ---
 - name: 集群前置检查
   hosts: localhost

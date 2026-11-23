@@ -1,7 +1,8 @@
 # 控制面初始化 + 工作节点加入 + CNI
 # 用法：ansible-playbook playbooks/02-bootstrap-kubeadm.yml
+#`inventory_hostname`：Ansible 内置变量，当前正在执行任务的这台主机名
 ---
-- name: 控制面（kubeadm init / join + Cilium）
+- name: 控制面
   hosts: masters
   become: true
   any_errors_fatal: true

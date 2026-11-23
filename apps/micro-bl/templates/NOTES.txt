@@ -2,7 +2,8 @@ micro-bl 已部署到命名空间 {{ include "micro-bl.namespace" . }}。
 
 业务组件：
   user / video / interaction  HTTP + gRPC 双端口 Service
-  worker                       Kafka 消费 + ffmpeg 转码
+  worker-counters             Kafka 计数消费（3 消费组）+ ZSet 重建 cron
+  worker-transcode            Kafka 转码消费 + ffmpeg（CPU 密集）
   web                          Vue3 静态资源 + nginx
 
 入口：

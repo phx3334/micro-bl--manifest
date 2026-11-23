@@ -7,7 +7,10 @@ auth:
 
 primary:
   persistence:
-    size: 10Gi
+    # 只有 MySQL 使用动态 ESSD；其他组件保持 local-path
+    # ESSD 最小容量通常 20Gi，所以这里直接申请 20Gi
+    size: 20Gi
+    storageClass: alicloud-disk-essd
   resources:
     requests:
       cpu: 500m

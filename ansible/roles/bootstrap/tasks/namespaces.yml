@@ -1,5 +1,6 @@
 # 命名空间由清单仓库统一声明（labels 决定是否注入 sidecar），
 # 先于 cert-manager/harbor 创建，ArgoCD 后续 apply 同一份文件是幂等的。
+#把这条任务执行之后的返回结果，存到一个叫 `ns_apply` 的变量里
 ---
 - name: 复制命名空间清单
   copy:

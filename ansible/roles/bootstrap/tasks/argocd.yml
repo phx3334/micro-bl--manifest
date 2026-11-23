@@ -44,7 +44,7 @@
     - 10m
 
 - name: 等待 argocd-server 就绪
-  command: kubectl -n argocd rollout status deployment/argocd-server --timeout=300s
+  command: kubectl rollout status deployment -n argocd --timeout=300s
   changed_when: false
 
 # AppProject 必须先于 root Application，否则子 Application 因项目不存在而报错

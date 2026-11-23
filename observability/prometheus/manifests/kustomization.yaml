@@ -9,3 +9,4 @@ resources:
   - prometheusrule-slo.yaml
   - prometheusrule-middleware.yaml
   - prometheusrule-mesh.yaml
+  - prometheusrule-cert.yaml

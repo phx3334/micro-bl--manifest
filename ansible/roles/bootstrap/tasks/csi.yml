@@ -1,0 +1,64 @@
+# 阿里云云盘 CSI：只给 MySQL 提供动态 ESSD。
+# 其他 PVC 继续使用 local-path
+---
+- name: 下载阿里云 CSI chart
+  get_url:
+    url: "{{ alibaba_csi_chart_url }}"
+    dest: "{{ ansible_workdir }}/{{ alibaba_csi_chart_archive }}"
+    mode: "0644"
+    timeout: 120
+  register: csi_chart_download
+  retries: 3
+  delay: 5
+  until: csi_chart_download is succeeded
+
+- name: 解压 CSI chart
+  unarchive:
+    src: "{{ ansible_workdir }}/{{ alibaba_csi_chart_archive }}"
+    dest: "{{ ansible_workdir }}"
+    remote_src: true
+    creates: "{{ alibaba_csi_chart_dir }}/deploy/charts/alibaba-cloud-csi-driver/Chart.yaml"
+
+- name: 复制 CSI values 与 StorageClass
+  copy:
+    src: "{{ infra_repo }}/{{ item.src }}"
+    dest: "{{ ansible_workdir }}/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - src: infra/csi-alicloud/values.yaml
+      dest: csi-values.yaml
+    - src: infra/csi-alicloud/storageclass.yaml
+      dest: csi-storageclass.yaml
+
+- name: 安装 / 升级阿里云 CSI
+  command:
+    - helm
+    - upgrade
+    - --install
+    - alibaba-cloud-csi-driver
+    - "{{ alibaba_csi_chart_dir }}/deploy/charts/alibaba-cloud-csi-driver"
+    - --namespace
+    - kube-system
+    - --values
+    - "{{ ansible_workdir }}/csi-values.yaml"
+    - --wait
+    - --timeout
+    - 10m
+
+- name: 创建 MySQL 专用 ESSD StorageClass
+  command: kubectl apply -f {{ ansible_workdir }}/csi-storageclass.yaml
+  changed_when: false
+
+- name: 等待 CSI controller 就绪
+  command: kubectl -n kube-system rollout status deployment/csi-provisioner --timeout=300s
+  changed_when: false
+
+- name: 等待 CSI node plugin 就绪
+  command: kubectl -n kube-system rollout status daemonset/csi-plugin --timeout=300s
+  changed_when: false
+
+- name: 确认 alicloud-disk-essd StorageClass
+  command: kubectl get storageclass alicloud-disk-essd
+  changed_when: false

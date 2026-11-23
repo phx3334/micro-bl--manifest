@@ -1,0 +1,63 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: micro-bl-cert
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: micro-bl
+spec:
+  groups:
+    - name: cert-manager-alerting
+      interval: 1m
+      rules:
+        # 证书剩余有效期。cert-manager 的续签阈值默认是到期前 30 天，
+        # 正常情况下续签在 30 天窗口内自动完成；到 14 天还没翻成新证书
+        # 说明续签链路（ACME/DNS 挑战）已经卡住，靠它自己大概率修不好。
+        # 提前 14 天告警，留出人工介入窗口。
+        - alert: CertManagerCertExpiringSoon
+          expr: |
+            (certmanager_certificate_expiration_timestamp_seconds - time()) < 14 * 86400
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "证书 {{ $labels.name }}（{{ $labels.namespace }}）将在14天内过期"
+            description: "剩余 {{ $value | humanizeDuration }}。检查 cert-manager 续签日志与 ACME/DNS 挑战是否失败，必要时手动触发续签。"
+
+        # 到期前 3 天仍未续上 = 续签彻底失败，业务 TLS 即将开始握手报错。
+        # 这条是续签失败的兜底信号（续签失败本身不一定有独立指标），
+        # 到这个阶段必须人工干预：手动签发或替换 Secret。
+        - alert: CertManagerCertExpiringCritical
+          expr: |
+            (certmanager_certificate_expiration_timestamp_seconds - time()) < 3 * 86400
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "证书 {{ $labels.name }}（{{ $labels.namespace }}）将在3天内过期"
+            description: "续签窗口即将耗尽，过期后依赖该证书的组件 TLS 全部失败。立即人工签发新证书并排查 ACME/DNS 配置。"
+
+        # ready_status{condition="False"} 持续 15 分钟 = 证书处于未就绪状态
+        # （签发失败、Challenge 卡住、Issuer 未就绪等）。正常稳态下该值应恒为 0，
+        # 一旦非 0 且不自愈，往往就是 ACME 限流或 DNS API 凭证过期。
+        - alert: CertManagerCertNotReady
+          expr: |
+            certmanager_certificate_ready_status{condition="False"} == 1
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "证书 {{ $labels.name }}（{{ $labels.namespace }}）持续未就绪"
+            description: "condition=False 已超过 15 分钟。kubectl describe certificate {{ $labels.name }} 查看 Events，常见原因：ACME 限流、DNS 挑战失败、Issuer 凭证过期。"
+
+        # 控制器 sync 失败：cert-manager 周期性 reconcile 所有证书资源，
+        # rate 持续大于 0 说明有资源反复 sync 失败（不是一次性抖动）。
+        - alert: CertManagerControllerSyncFailures
+          expr: |
+            rate(certmanager_controller_sync_call_count{zone="failed"}[15m]) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "cert-manager 控制器 sync 持续失败（{{ $value | printf \"%.2f\" }}/s）"
+            description: "cert-manager-operator 日志有持续报错，检查 Issuer/ClusterIssuer 状态与上游 ACME/DNS 服务商连通性。"

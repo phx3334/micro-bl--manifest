@@ -52,16 +52,52 @@ services:
         cpu: 500m
         memory: 512Mi
 
+# worker 拆成两个 Deployment（同一镜像，APP_WORKER_MODE 决定消费范围）：
+#   worker-counters   三个计数消费组 + ZSet 重建 cron（轻 IO，按计数 lag 扩）
+#   worker-transcode  ffmpeg 转码（CPU 密集，按转码 lag 扩）
+# 拆开的原因：单 topic 打爆不再带动全部副本扩容——转码积压只扩转码，
+# 计数积压只扩计数；两组负载画像（CPU vs IO）与 lag 阈值也完全不同。
 worker:
-  replicas: 1
   dbName: feed_video
-  resources:
-    requests:
-      cpu: 500m
-      memory: 512Mi
-    limits:
-      cpu: "1"
-      memory: 1Gi
+  counters:
+    # replicas 即 ScaledObject 的 minReplicaCount（必须 >=1：ZSet 重建 cron 在这边）
+    replicas: 1
+    maxReplicas: 4
+    # lagThreshold = 每副本目标积压（KEDA 期望副本 ≈ ceil(总lag/阈值)）：
+    # 计数类单条毫秒级、量大，阈值放宽避免抖动扩容。
+    consumers:
+      - group: worker-playcount
+        topic: video.playcount
+        lagThreshold: "500"
+      - group: worker-likecount
+        topic: video.likecount
+        lagThreshold: "500"
+      - group: worker-commentcount
+        topic: video.commentcount
+        lagThreshold: "500"
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+  transcode:
+    # min 同样 >=1：min=0 时若消费组无已提交 offset，KEDA 可能因无法发现 topic 而扩不起来
+    replicas: 1
+    maxReplicas: 4
+    # 转码单条分钟级（ffmpeg），积压 10 条就该加人
+    consumers:
+      - group: worker-transcode
+        topic: video.transcode
+        lagThreshold: "10"
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
 
 web:
   replicas: 1
@@ -156,6 +192,8 @@ secret:
     minioAccessKey: ""
     minioSecretKey: ""
 
+# 业务（user/video/interaction）的 CPU 扩缩容参数：由 ScaledObject 的 cpu trigger 消费
+# （见 templates/scaledobject.yaml；KEDA 在其背后自动生成 HPA）
 hpa:
   minReplicas: 1
   maxReplicas: 4
