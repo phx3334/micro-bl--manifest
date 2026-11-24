@@ -104,9 +104,14 @@ variable "ssh_cidr" {
 }
 
 variable "node_port_cidr" {
-  description = "允许访问 NodePort 入口的来源 CIDR；演示环境可 0.0.0.0/0，生产建议收敛"
+  description = "允许访问 NodePort 入口的来源 CIDR；必须收敛为自己的公网 IP/32（与 ssh_cidr 同值即可）"
   type        = string
-  default     = "0.0.0.0/0"
+  default     = ""
+
+  validation {
+    condition     = length(trimspace(var.node_port_cidr)) > 0 && var.node_port_cidr != "0.0.0.0/0" && can(cidrhost(var.node_port_cidr, 0))
+    error_message = "必须提供 node_port_cidr（例如 1.2.3.4/32）：禁止留空，也禁止 0.0.0.0/0（Harbor/ArgoCD/Grafana 密码较弱，入口必须只对自己的 IP 开放）。"
+  }
 }
 
 variable "internet_max_bandwidth_out" {

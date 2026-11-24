@@ -46,6 +46,7 @@ TriggerAuthentication：Kafka 客户端 listener 是单向 TLS，broker 证书�
 KEDA 的 ca 参数吃 PEM 内容（AppendCertsFromPEM），internal-ca ConfigMap 的 ca.crt 正好是内容——
 由 internal-ca-distributor CronJob 分发到 micro-bl，与本对象同命名空间。两个 ScaledObject 共用。
 */}}
+---
 apiVersion: keda.sh/v1alpha1
 kind: TriggerAuthentication
 metadata:

@@ -7,10 +7,9 @@
 #   kubectl apply -f cicd/argocd/bootstrap/appproject.yaml          # 必须先于 root
 #   kubectl apply -f cicd/argocd/bootstrap/root-application-prod.yaml
 #
-# 初始密码已在上方 configs.secret 固定为 147258（账号 admin）；
-# 如需改用随机初始密码，删除该段并在安装后执行：
-#   kubectl -n argocd get secret argocd-initial-admin-secret \
-#     -o jsonpath='{.data.password}' | base64 -d
+# 管理员密码：configs.secret 存的是 bcrypt 哈希（非明文，可入库），明文不入库；
+# 账号 admin（Argo CD 内置账号名不可改）。如需改密码：
+#   htpasswd -nbBC 10 "" '<新密码>' | tr -d ':\n' | sed 's/$2y/$2a/'
 #
 # 定位：Argo CD 是"引导层"，自己不由 Argo CD 管理（和 Tekton 平台同理）。
 # 它接管的是 infra/overlays/<env> 与 apps/micro-bl 两类 Application。
@@ -21,8 +20,9 @@ global:
   domain: ""
 
 configs:
-  # 内置管理员账号名固定为 admin（Argo CD 不支持改名）；密码统一为 147258，
-  # 这里存的是其 bcrypt 哈希（改密码需重新生成，不要直接填明文）
+  # 内置管理员账号名固定为 admin（Argo CD 不支持改名）。
+  # 下面是管理员密码的 bcrypt 哈希（哈希不是明文，可入库）；改密码需用
+  # `htpasswd -nbBC 10 "" '<新密码>' | tr -d ':\n' | sed 's/$2y/$2a/'` 重新生成，
   secret:
     argocdServerAdminPassword: "$2b$10$nRDHmQXCh0Czozl0sYpywOYlJfY205VzVusjrnAViNLiDaa79Fiye"
     argocdServerAdminPasswordMtime: "2026-11-21T00:00:00Z"

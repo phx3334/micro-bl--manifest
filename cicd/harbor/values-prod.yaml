@@ -1,5 +1,7 @@
-# prod：演示容量（镜像量小），统一凭据 phx / 147258（Harbor 管理员账号名固定 admin）
-# 注意：secretKey 必须 16 字符，换值时不要改长度
+# prod：演示容量（镜像量小）
+# 管理员密码与 secretKey 不入库：由 Secret harbor-credentials（platform-system）提供，
+# 键名固定为 HARBOR_ADMIN_PASSWORD 与 secretKey（harbor chart 的 existingSecret 约定）。
+# 创建命令见 README step 4；secretKey 必须恰好 16 字符。
 persistence:
   persistentVolumeClaim:
     registry:
@@ -7,5 +9,5 @@ persistence:
     trivy:
       size: 1Gi
 
-harborAdminPassword: "147258"
-secretKey: "1472581472581472"
+existingSecretAdminPassword: harbor-credentials
+existingSecretSecretKey: harbor-credentials

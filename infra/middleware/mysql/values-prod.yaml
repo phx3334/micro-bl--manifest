@@ -1,9 +1,11 @@
-# 统一凭据 phx / 147258（必须与 apps/micro-bl/values-prod.yaml 的
-# secret.data.databasePassword 一致，否则业务 Pod 全部连不上库）
+# 密码不入库：由 Secret mysql-credentials（middleware）提供，键名固定为
+# mysql-password / mysql-root-password / mysql-replication-password
+# （bitnami/mysql 的 auth.existingSecret 约定，三个键都必须存在）。
+# 创建命令见 README step 4；mysql-password 必须与 apps/micro-bl 的
+# micro-bl-credentials 里 APP_DATABASE_PASSWORD 同值，否则业务 Pod 全部连不上库。
 auth:
   username: phx
-  password: "147258"
-  rootPassword: "147258"
+  existingSecret: mysql-credentials
 
 primary:
   persistence:

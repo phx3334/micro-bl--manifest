@@ -50,14 +50,15 @@ spec:
             summary: "证书 {{ $labels.name }}（{{ $labels.namespace }}）持续未就绪"
             description: "condition=False 已超过 15 分钟。kubectl describe certificate {{ $labels.name }} 查看 Events，常见原因：ACME 限流、DNS 挑战失败、Issuer 凭证过期。"
 
-        # 控制器 sync 失败：cert-manager 周期性 reconcile 所有证书资源，
+        # 控制器 sync 出错：cert-manager 周期性 reconcile 所有证书资源，
+        # error_count 是失败计数器（label 只有 controller，没有 zone），
         # rate 持续大于 0 说明有资源反复 sync 失败（不是一次性抖动）。
         - alert: CertManagerControllerSyncFailures
           expr: |
-            rate(certmanager_controller_sync_call_count{zone="failed"}[15m]) > 0
+            rate(certmanager_controller_sync_error_count[15m]) > 0
           for: 15m
           labels:
             severity: warning
           annotations:
-            summary: "cert-manager 控制器 sync 持续失败（{{ $value | printf \"%.2f\" }}/s）"
-            description: "cert-manager-operator 日志有持续报错，检查 Issuer/ClusterIssuer 状态与上游 ACME/DNS 服务商连通性。"
+            summary: "cert-manager 控制器 sync 持续出错（{{ $value | printf \"%.2f\" }}/s）"
+            description: "cert-manager 日志有持续报错，检查 Issuer/ClusterIssuer 状态与上游 ACME/DNS 服务商连通性。"

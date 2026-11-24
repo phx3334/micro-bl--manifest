@@ -1,6 +1,11 @@
-# 统一凭据 147258（必须与 apps/micro-bl 的 Secret 同值，否则业务 Pod 认证失败）
+# 密码不入库：由 Secret redis-credentials（middleware）提供，
+# 键名 redis-password（auth.existingSecretPasswordKey 显式指定）。
+# 创建命令见 README step 4；密码必须与 apps/micro-bl 的
+# micro-bl-credentials 里 APP_REDIS_PASSWORD 同值，否则业务 Pod 认证失败。
+
 auth:
-  password: "147258"
+  existingSecret: redis-credentials
+  existingSecretPasswordKey: redis-password
 
 # 1 主 + 2 从；单节点资源压到 100m/256Mi（3 节点合计 300m/768Mi），演示优先
 master:

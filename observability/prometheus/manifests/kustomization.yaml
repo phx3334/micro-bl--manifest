@@ -5,6 +5,7 @@ kind: Kustomization
 resources:
   - servicemonitor-collector.yaml
   - servicemonitor-minio.yaml
+  - servicemonitor-certmanager.yaml
   - podmonitor-istio.yaml
   - prometheusrule-slo.yaml
   - prometheusrule-middleware.yaml

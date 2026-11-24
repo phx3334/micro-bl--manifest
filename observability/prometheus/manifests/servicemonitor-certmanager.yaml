@@ -1,0 +1,32 @@
+# cert-manager 控制器指标（:9402 /metrics，明文 HTTP）。
+#
+# 为什么 SM 在这里而不是 cert-manager chart 里开 prometheus.servicemonitor.enabled：
+# 安装顺序是 bootstrap(3) 装 cert-manager → 观测栈(6) 装 kube-prometheus-stack。
+# 若 chart 里开 ServiceMonitor，bootstrap 时 CRD 还不存在，helm install 直接报
+# "no matches for kind ServiceMonitor"。所以 chart 只开 prometheus.enabled
+# （创建 9402 的 metrics Service），SM 等 operator 就绪后随本目录一起 apply
+# —— 与 servicemonitor-minio 同一模式。
+#
+# 没有这个文件的后果：cert-manager 指标无人采集，
+# prometheusrule-cert.yaml 的四条告警全部无数据静默失效。
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cert-manager
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: micro-bl
+spec:
+  namespaceSelector:
+    matchNames:
+      - cert-manager
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cert-manager
+      # chart 会为 webhook/cainjector 各建 Service 且 name 标签相同，
+      # 必须带 component 才能只命中 9402 这个 metrics Service
+      app.kubernetes.io/component: controller
+  endpoints:
+    - port: http-metrics   # Service 端口名（chart templates/service.yaml），不是 9402 数字
+      path: /metrics
+      interval: 30s
