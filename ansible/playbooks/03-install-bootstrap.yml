@@ -10,9 +10,11 @@
   vars:
     infra_repo: "{{ playbook_dir | dirname }}"
   pre_tasks:
-    - name: 计算服务器公网 IP（Harbor externalURL / 证书 SAN）
+    - name: 计算统一公网入口 IP（Harbor externalURL / 证书 SAN）
       set_fact:
-        server_public_ip: "{{ hostvars[groups['masters'][0]]['ansible_host'] }}"
+        # entry_ip = EIP（绑 SLB，见 terraform/eip.tf），地址固定且经 SLB 高可用；
+        # 不能用 master1 的 ansible_host——那是实例自动 IP，stop/start 会漂移
+        server_public_ip: "{{ entry_ip }}"
       when: inventory_hostname == groups['masters'][0]
   roles:
     - role: bootstrap
@@ -24,8 +26,8 @@
   become: true
   any_errors_fatal: true
   vars:
-    server_public_ip: "{{ hostvars[groups['masters'][0]]['ansible_host'] }}"
-    harbor_registry_dir: "/etc/containerd/certs.d/{{ hostvars[groups['masters'][0]]['ansible_host'] }}:30003"
+    server_public_ip: "{{ entry_ip }}"
+    harbor_registry_dir: "/etc/containerd/certs.d/{{ entry_ip }}:30003"
   handlers:
     - name: restart containerd
       systemd:

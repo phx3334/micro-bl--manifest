@@ -17,7 +17,9 @@ resource "alicloud_instance" "master" {
   key_name             = alicloud_key_pair.this.key_pair_name
   instance_charge_type = "PostPaid"
 
-  # 公网：按流量计费，带宽上限只作为突发上限，不按带宽预付费
+  # 公网：按流量计费，带宽上限只作为突发上限，不按带宽预付费。
+  # 所有节点都有自动公网 IP 供 Ansible 按主机 SSH；对外服务入口是固定 EIP
+  # （绑定 apiserver SLB，见 eip.tf），与实例公网 IP 无关。
   internet_charge_type       = "PayByTraffic"
   internet_max_bandwidth_out = var.internet_max_bandwidth_out
 
@@ -41,8 +43,8 @@ resource "alicloud_instance" "worker" {
   private_ip           = local.worker_private_ips[count.index]
   key_name             = alicloud_key_pair.this.key_pair_name
   instance_charge_type = "PostPaid"
-  # CSI Controller/Node 通过实例 RAM 角色访问 ECS OpenAPI，不在集群里放 AK
-  role_name = alicloud_ram_role.csi.role_name
+  # CSI Controller/Node 通过实例 RAM 角色访问 ECS OpenAPI，不在集群里放 AK；
+  # 实例与角色的绑定见 ram.tf 的 alicloud_ecs_ram_role_attachment（role_name 字段已弃用）
 
   internet_charge_type       = "PayByTraffic"
   internet_max_bandwidth_out = var.internet_max_bandwidth_out

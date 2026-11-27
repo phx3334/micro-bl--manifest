@@ -3,7 +3,12 @@ ipam:
   mode: kubernetes
 
 
-kubeProxyReplacement: false
+# eBPF 完全替代 kube-proxy：ClusterIP / NodePort / LoadBalancer 转发全由 Cilium 处理，
+# 省掉 kube-proxy 的 iptables 规则（大集群下规则数万条，性能与同步延迟都是问题）。
+# 配套要求（已落实）：kubeadm init 跳过 addon/kube-proxy，集群里根本不装 kube-proxy
+# （见 ansible roles/kubeadm_master tasks/main.yml）；两者同时运行会抢 Service 转发。
+# 回滚：helm upgrade 把此值改回 false，并去掉 kubeadm 的 --skip-phases 后重建集群。
+kubeProxyReplacement: true
 
 
 rollOutCiliumPods: true

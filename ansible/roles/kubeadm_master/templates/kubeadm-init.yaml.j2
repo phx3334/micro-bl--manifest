@@ -22,8 +22,9 @@ networking:
   dnsDomain: cluster.local
 apiServer:
   certSANs:
-    # CLB 私网地址 + 三台 master 的私网/公网地址（公网用于本机 kubectl 直连）
+    # CLB 私网地址 + 三台 master 的私网/公网地址 + 统一入口 EIP（本机 kubectl 走 EIP:6443）
     - "{{ apiserver_endpoint.split(':')[0] }}"
+    - "{{ entry_ip }}"
     - "{{ private_ip }}"
     - "{{ inventory_hostname }}"
 {% for h in groups['masters'] %}

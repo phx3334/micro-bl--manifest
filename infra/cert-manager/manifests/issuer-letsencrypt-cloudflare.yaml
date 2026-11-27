@@ -1,0 +1,29 @@
+# Let's Encrypt 生产环境 + Cloudflare DNS-01。
+#
+# 为什么用 DNS-01 而不是 HTTP-01：
+#   1. *.temporary-demo.xyz 是通配符证书，HTTP-01 签不了通配符，只有 DNS-01 可以；
+#   2. 验证靠 TXT 记录，不要求 80/443 对验证器可达（源站在 SLB 后面也无所谓）。
+#
+# 前置（只需一次，apply 本文件之前执行）：
+#   kubectl -n cert-manager create secret generic cloudflare-api-token \
+#     --from-literal=api-token='<Cloudflare API Token>'
+# Token 权限：Zone → DNS → Edit，作用域选 temporary-demo.xyz。
+#
+# 首次签发与 90 天后的续期都会自动重复"加 TXT → LE 验证 → 删 TXT"，
+# 全程无需人工介入；Token 只在验证时被读取调用 API。
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-cloudflare
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    # ACME 账户私钥与注册信息，cert-manager 自动创建并保存
+    privateKeySecretRef:
+      name: letsencrypt-cloudflare-account
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token
+              key: api-token

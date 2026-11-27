@@ -27,7 +27,7 @@ kubectl label namespace micro-bl istio-injection=enabled
 
 ```bash
 # 部署前先把 infra/overlays/prod/patches/istio-gateway-host.yaml 和
-# istio-virtualservice-host.yaml 里的 REPLACE_WITH_SERVER_IP 换成第一台 master 公网 IP
+# istio-virtualservice-host.yaml 里的 REPLACE_WITH_SERVER_IP 换成统一入口 EIP（terraform output entry_eip）
 kubectl apply -k infra/overlays/prod
 ```
 

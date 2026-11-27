@@ -1,5 +1,7 @@
 provider "alicloud" {
-  region = var.region
+  region                  = var.region
+  shared_credentials_file = "C:/Users/victor/.aliyun/config.json"
+  profile                 = "default"
 }
 
 locals {

@@ -1,282 +1,102 @@
 # project-infra（micro-bl--manifest）
 
-只保留 **prod 一套部署**。Terraform 拉起阿里云节点，Ansible 完成 kubeadm 与平台组件 bootstrap，ArgoCD 接管 `infra/overlays/prod` 与业务 Chart；MySQL / Redis / Kafka / MinIO 与观测栈按各组件 README 手工安装。
+Kubernetes 生产环境的完整基础设施声明：Terraform 建云资源 → Ansible 装集群 → Kustomize/Helm 部署平台组件与应用。
 
-## 目录
+## 目录结构
 
 ```
-terraform/          # VPC / 交换机 / 安全组 / CLB / ECS / 生成 ansible inventory
-ansible/            # 00-preflight → 01-provision → 02-kubeadm → 03-bootstrap
-infra/              # Cilium / Istio / cert-manager / sealed-secrets / middleware / overlays/prod
-observability/      # Prometheus / Tempo / Loki / Grafana / otel-collector / kafka-exporter
-cicd/               # Harbor values / Tekton 资源 / ArgoCD bootstrap 与 prod Applications
-apps/micro-bl/   # 业务 Helm Chart（只有 values-prod.yaml）
+project-infra/
+├── terraform/        # 阿里云资源定义（IaC）：VPC、安全组、6 台 ECS、2 个 SLB、EIP、RAM 角色
+│                     #   apply 后生成 ansible/inventory/hosts.ini；state 文件勿丢（destroy 靠它）
+├── ansible/          # 集群安装与配置
+│   ├── inventory/    #   hosts.ini（terraform 生成）+ group_vars（版本、镜像源、组件开关）
+│   ├── playbooks/    #   00 预检 → 01 节点初始化 → 02 kubeadm 引导 → 03 平台组件安装
+│   └── roles/        #   common / containerd / kubeadm_master / kubeadm_worker / bootstrap
+├── infra/            # 平台基础设施（Kustomize/Helm values）
+│   ├── base/         #   命名空间、Istio Gateway/VirtualService、RBAC
+│   ├── overlays/prod/#   prod 补丁（域名、host 等环境相关字段）
+│   ├── cilium/       #   CNI（含 Hubble UI）
+│   ├── istio/        #   服务网格（ingressgateway 即业务入口）
+│   ├── cert-manager/ #   内部 CA 与各组件证书签发
+│   ├── csi-alicloud/ #   阿里云云盘 CSI + StorageClass
+│   ├── sealed-secrets/#  密钥加密（凭据不入库，见 credentials/README.md）
+│   ├── credentials/  #   凭据契约：谁需要哪些 Secret（值不随仓库分发）
+│   └── middleware/    #   MySQL / Redis / Kafka / MinIO 的 chart values
+├── cicd/             # CI/CD 平台
+│   ├── tekton/       #   流水线：构建、扫描、推镜像、回写 GitOps
+│   ├── tekton-platform/
+│   ├── argocd/       #   GitOps：bootstrap 与 prod 应用
+│   └── harbor/       #   私有镜像仓库
+├── observability/    # 可观测性（Prometheus Operator + kustomize）
+│   ├── prometheus/   #   指标采集、告警规则（ServiceMonitor/PrometheusRule）
+│   ├── grafana/      #   看板（数据源与 dashboard 全部 IaC provisioning）
+│   ├── loki/         #   日志聚合
+│   ├── tempo/        #   链路追踪（数据存 MinIO）
+│   ├── otel-collector/#  日志/指标/链路采集网关与 agent
+│   └── kafka-exporter/
+├── apps/micro-bl/    # 业务应用 Helm chart（部署、服务、KEDA ScaledObject）
+└── README.md         # 部署 runbook（本文件的详细操作步骤）
 ```
 
-## 前置
+## 端口清单
 
-- Terraform、Ansible（Windows 建议 WSL）、kubectl、helm。
-- 阿里云按量付费账号；`terraform.tfvars` 必填 `ssh_cidr` 与 `ssh_public_key`。
-- 国内网络建议先实测 Istio chart（Google Storage）、quay.io、Docker Hub、ghcr.io；不通时先准备镜像代理/同步。
-- 演示当天把 `internet_max_bandwidth_out` 临时调到 100 Mbps，拉完镜像再按需降回；默认 10 Mbps 会非常慢。
+### 安全组放行（来源已收敛，见 terraform/network.tf）
+`node_port_cidr`:允许访问 NodePort 入口的来源 IP 范围
+`ssh_cidr`:允许进行对master进行ssh连接的ip的范围
 
-## 1. Terraform
+| 端口 | 协议 | 用途 | 来源 |
+|---|---|---|---|
+| 22 | TCP | SSH 管理 | `ssh_cidr`（本机公网 IP/32） |
+| 6443 | TCP | Kubernetes apiserver（kubectl 直连） | `ssh_cidr` |
+| 6443 | TCP | 同上 | `100.64.0.0/10`（内网 CLB 健康检查源段） |
+| 30080 | TCP | Istio ingressgateway 的 NodePort（公网 SLB 健康检查探测它） | `100.64.0.0/10` |
+| 30003 | TCP | Harbor HTTPS | `node_port_cidr`（本机公网 IP/32） |
+| 30080 | TCP | Istio ingressgateway（业务/媒体站入口） | `node_port_cidr` |
+| 30081 | TCP | Tekton EventListener（Git webhook） | `node_port_cidr` |
+| 30082 | TCP | ArgoCD UI | `node_port_cidr` |
+| 30300 | TCP | Grafana 看板 | `node_port_cidr` |
+| 30400 | TCP | Cilium Hubble UI | `node_port_cidr` |
+| 30443 | TCP | Istio ingressgateway HTTPS（公网 SLB 443 的后端，TLS 在此终结） | `node_port_cidr`、`100.64.0.0/10`（SLB 健康检查）、Cloudflare 回源 IP 段（见 network.tf `cloudflare_origin`） |
+| 30900 | TCP | MinIO API（浏览器直链） | `node_port_cidr` |
+| 全部 | all | VPC 内互通（etcd 2379/2380、kubelet 10250、Cilium VXLAN、NodePort 互访） | `vpc_cidr` |
+| 全部 | all | 出方向 | `0.0.0.0/0` |
 
-```bash
-cd terraform
-cp terraform.tfvars.example terraform.tfvars
-# 填 ssh_cidr=<你的公网IP>/32、ssh_public_key=<~/.ssh/id_ed25519.pub>、
-# node_port_cidr=<你的公网IP>/32（必填，且禁止 0.0.0.0/0——terraform validation 会拦截）
-terraform init
-terraform apply
+- `ssh_cidr` / `node_port_cidr` 在 variables.tf 中强制校验：禁止留空、禁止 `0.0.0.0/0`。
+
+### 负载均衡监听（terraform/slb.tf）
+
+| SLB | 监听 | 后端 | 说明 |
+|---|---|---|---|
+| 内网 `micro-bl-apiserver` | TCP 6443 | 3 台 master:6443 | kubeadm `controlPlaneEndpoint`（固定私网 VIP） |
+| 公网 `micro-bl-public` | TCP 443 | 全部 6 节点:30443 | 浏览器与 Cloudflare CDN 回源入口；Istio Gateway 在 443 终止 TLS（证书 `*.temporary-demo.xyz`，cert-manager + Cloudflare DNS-01 自动签发续期），按 Host/SNI 分流业务站与 `media.temporary-demo.xyz` |
+
+### 集群内部端口（ClusterIP，不对公网暴露）
+
+MySQL 3306、Redis 6379 / Sentinel 26379、Kafka 9092、MinIO 9000、Loki 3100、Tempo 3200、Prometheus 9090 等——排障用 `kubectl port-forward`：
+
+```powershell
+# Prometheus UI → http://localhost:9090
+kubectl -n monitoring port-forward svc/prometheus-operated 9090:9090
+
+# MySQL：本机客户端连 localhost:3306（密码取自 mysql-credentials Secret）
+kubectl -n middleware port-forward svc/mysql 3306:3306
+
+# Loki 日志查询
+kubectl -n monitoring port-forward svc/loki 3100:3100
+curl "http://localhost:3100/loki/api/v1/query_range?query={app=\"web\"}&limit=5"
 ```
 
-- `terraform.tfstate` 是本地文件且被 gitignore；**不要丢**，演示结束要靠它 `terraform destroy`，否则实例/CLB 会继续计费。
-- 公网 IP 不是 EIP：实例 stop/start 后可能变化，Harbor/MinIO 证书 SAN、Gateway host、Tekton registry 都会失效。演示当天不要 stop/start；需要暂停就改用 EIP。
-- `availability_zone` 自动选择只按 worker 规格过滤；如果 master 规格在该 AZ 无货，手动指定 `availability_zone`。
-- `key_pair_name` 默认 `micro-bl`，地域内已有同名密钥对时需改名或 import。
-- Terraform 会创建 CSI 专用 RAM 角色 `micro-bl-csi` 并绑定到节点；RAM 用户需要临时具备创建角色/策略的权限（例如 `AliyunRAMFullAccess`），否则 apply 会在 `alicloud_ram_role` 处失败。
-- MySQL 使用动态 ESSD，云盘不在 Terraform state 里；`terraform destroy` 前先删除 MySQL PVC/PV，确认阿里云控制台没有残留云盘。
+## IP 地址清单
 
-Terraform 会生成 `ansible/inventory/hosts.ini`（当前为空文件，apply 后才有内容）。
-
-## 2. 替换服务器 IP
-
-回到仓库根目录：
-
-```bash
-cd ..   # 从 terraform/ 回到 project-infra/
-```
-
-所有 `REPLACE_WITH_SERVER_IP` 统一填 **第一台 master 的公网 IP**（`terraform output master_public_ips[0]`）。Harbor 与 MinIO 证书的 IP SAN 只签这一台，填别的节点会 x509 失败。
-
-```bash
-grep -rn "REPLACE_WITH_SERVER_IP" .
-```
-
-重点文件：
-
-- `apps/micro-bl/values.yaml`：`images.registry`
-- `apps/micro-bl/values-prod.yaml`：`config.minio.endpoint`
-- `infra/overlays/prod/patches/istio-gateway-host.yaml`
-- `infra/overlays/prod/patches/istio-virtualservice-host.yaml`
-- `infra/cert-manager/manifests/harbor-certificate.yaml`
-- `infra/cert-manager/manifests/middleware-certificates.yaml`（MinIO IP SAN）
-- `cicd/tekton/triggers/trigger-template.yaml`：`image-registry`
-
-`03-install-bootstrap` 的占位符检查会忽略注释行，只匹配真实配置值。
-
-## 3. Ansible（节点与集群）
-
-```bash
-cd ansible
-ansible-playbook playbooks/00-preflight.yml
-ansible-playbook playbooks/01-provision-nodes.yml
-ansible-playbook playbooks/02-bootstrap-kubeadm.yml
-```
-
-`03-install-bootstrap`（平台组件）**放到 step 4 凭据创建之后执行**：它会安装 Harbor，
-而 Harbor 管理员密码已改为从外部 Secret 读取（`existingSecretAdminPassword`），
-Secret 必须先于 03 存在，否则 harbor-core 卡在 CreateContainerConfigError、
-helm `--wait` 超时导致 03 失败。
-
-## 4. 基础 prod 凭据（Harbor 相关的在 step 7）
-
-回到仓库根目录执行后续命令：
-
-```bash
-cd ..   # 从 ansible/ 回到 project-infra/
-```
-
-ArgoCD 默认同步 prod，业务/MinIO/Tempo/中间件/Harbor 都引用外部 Secret。仓库里没有明文，也不应提交明文；下文 `<...>` 占位符替换为你实际设置的密码（密码本体不写入任何仓库文件）。
-
-```bash
-# 1) 业务 6 个键
-kubectl -n micro-bl create secret generic micro-bl-credentials \
-  --from-literal=APP_JWT_ACCESS_TOKEN_SECRET="$(openssl rand -hex 32)" \
-  --from-literal=APP_JWT_REFRESH_TOKEN_SECRET="$(openssl rand -hex 32)" \
-  --from-literal=APP_DATABASE_PASSWORD="<mysql-phx-password>" \
-  --from-literal=APP_REDIS_PASSWORD="<redis-password>" \
-  --from-literal=APP_MINIO_ACCESS_KEY="<minio-root-user>" \
-  --from-literal=APP_MINIO_SECRET_KEY="<minio-root-password>"
-
-# 2) MinIO chart 的 root 凭据
-kubectl -n middleware create secret generic minio-credentials \
-  --from-literal=rootUser="<minio-root-user>" \
-  --from-literal=rootPassword="<minio-root-password>"
-
-# 3) Tempo 的 S3 凭据 + Grafana 管理员密码
-kubectl -n observability create secret generic tempo-s3 \
-  --from-literal=accessKey="<minio-root-user>" \
-  --from-literal=secretKey="<minio-root-password>"
-kubectl -n observability create secret generic grafana-admin \
-  --from-literal=adminPassword="<strong-password>"
-
-# 4) 中间件与 Harbor 的凭据（values-prod 只写 existingSecret 引用，值全部在这里注入）
-kubectl -n middleware create secret generic mysql-credentials \
-  --from-literal=mysql-password="<mysql-phx-password>" \
-  --from-literal=mysql-root-password="<mysql-root-password>" \
-  --from-literal=mysql-replication-password="<mysql-replication-password>"
-kubectl -n middleware create secret generic redis-credentials \
-  --from-literal=redis-password="<redis-password>"
-kubectl -n platform-system create secret generic harbor-credentials \
-  --from-literal=HARBOR_ADMIN_PASSWORD="<harbor-admin-password>" \
-  --from-literal=secretKey="<16-chars-exactly>"
-```
-
-一致性约束：`mysql-password` 必须与第 1) 步的 `APP_DATABASE_PASSWORD` 同值、`redis-password` 与 `APP_REDIS_PASSWORD` 同值，否则业务 Pod 连不上库/Redis；`secretKey` 必须恰好 16 字符。
-
-生产建议用 SealedSecret 固化上述 Secret（控制器由 03 安装，需在 03 之后封印；
-`harbor-credentials` 若走 SealedSecret 则需先 `-e install_harbor=false` 跑 03、
-封印 apply 后再完整跑一次 03——演示路径用上面的 kubectl create 最简单）；
-临时演示用上面的命令即可。
-
-### 凭据就绪后：安装平台组件
-
-```bash
-cd ansible
-ansible-playbook playbooks/03-install-bootstrap.yml
-cd ..
-```
-
-`03` 会安装：local-path、阿里云云盘 CSI（只启用 disk 驱动）、metrics-server、KEDA、cert-manager + 内部 CA、sealed-secrets、Istio、Harbor、Tekton 控制器、ArgoCD，并手动触发一次 `internal-ca-distributor` 和 `istio-cacerts-sync`，保证 istiod 首启前已有内部 CA。
-
-CSI 只创建 `alicloud-disk-essd` StorageClass，不设为默认；默认仍是 local-path。只有 MySQL 的 PVC 显式使用 `alicloud-disk-essd`，其他组件继续 local-path。想关闭 CSI：`-e install_csi=false`。
-
-## 5. 中间件（手工 Helm，顺序不能反）
-
-```bash
-helm repo add bitnami https://charts.bitnami.com/bitnami
-helm repo update
-
-# MySQL：先建 initdb ConfigMap
-# values-prod 会把 PVC 放到 alicloud-disk-essd（03 已安装 CSI）
-# 版本 14.0.3 已用 helm template 与本仓库 values 验证渲染通过
-kubectl -n middleware create configmap mysql-initdb \
-  --from-file=01-databases.sql=infra/middleware/mysql/init/01-databases.sql
-helm upgrade --install mysql bitnami/mysql -n middleware --version 14.0.3 \
-  -f infra/middleware/mysql/values.yaml -f infra/middleware/mysql/values-prod.yaml
-
-# 观察 MySQL 动态 ESSD 的挂载链路
-kubectl -n middleware get pvc
-kubectl get pv
-kubectl get volumeattachment
-kubectl -n middleware describe pvc data-mysql-0
-kubectl -n middleware describe pod mysql-0
-# 阿里云控制台也能看到对应的 ESSD 云盘
-
-# Redis（sentinel，1 主 2 从）
-helm upgrade --install redis bitnami/redis -n middleware --version 23.1.3 \
-  -f infra/middleware/redis/values.yaml -f infra/middleware/redis/values-prod.yaml
-
-# Kafka（KRaft 单节点；advertisedHost 已指向 kafka.middleware.svc.cluster.local）
-helm upgrade --install kafka bitnami/kafka -n middleware --version <chart-version> \
-  -f infra/middleware/kafka/values.yaml -f infra/middleware/kafka/values-prod.yaml
-
-# MinIO（先于 Tempo，defaultBuckets 会建 tempo-prod）
-helm upgrade --install minio bitnami/minio -n middleware --version <chart-version> \
-  -f infra/middleware/minio/values.yaml -f infra/middleware/minio/values-prod.yaml
-```
-
-MySQL 已钉住并验证 `--version 14.0.3`（base values 的 `tls.autoGenerated` 已改为 chart 12.x+ 的 map 形式）。
-Kafka / MinIO 仍需显式钉版本：先用 `helm search repo bitnami/kafka --versions` 等命令
-选一个与 values 键名匹配的版本，再替换 `<chart-version>`，避免 latest 改键导致渲染失败。
-
-## 6. 观测栈（手工）
-
-```bash
-# Prometheus Operator 全家桶
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
-  -n observability --version 65.8.1 \
-  -f observability/prometheus/values.yaml -f observability/prometheus/values-prod.yaml
-
-# operator CRD 就绪后再 apply CR
-kubectl apply -k observability/prometheus/manifests
-
-# 采集器 / 存储 / 看板
-kubectl apply -k observability/otel-collector/overlays/prod
-kubectl apply -k observability/tempo/overlays/prod
-kubectl apply -k observability/loki/overlays/prod
-kubectl apply -k observability/grafana/overlays/prod
-kubectl apply -k observability/kafka-exporter
-```
-
-prod 的 otel-collector 固定 1 副本：`tail_sampling` + `spanmetrics` 是进程内有状态组件，多副本会被 Service 打散 trace 和指标。需要扩容时改成 gateway + `loadbalancing` exporter（routing_key: traceID）+ 独立采样层，而不是直接加副本。
-
-## 7. Harbor 与 Tekton
-
-- Harbor：建项目 `micro-bl`；建 `robot$push`（push/pull）和 `robot$pull`（pull）；robot token 分别用于 `harbor-push` 与 `harbor-pull`。
-- Tekton / 业务拉镜像凭据（不要提交真实值）：
-
-```bash
-kubectl -n micro-bl create secret docker-registry harbor-pull \
-  --docker-server="<master1-public-ip>:30003" \
-  --docker-username='robot$pull' --docker-password="<harbor-pull-robot-token>"
-
-kubectl -n platform-system create secret generic github-webhook-secret \
-  --from-literal=secretToken="$(openssl rand -hex 32)"
-kubectl -n platform-system create secret generic gitops-token \
-  --from-literal=token="<GitHub fine-grained PAT，仅 infra 仓 Contents: Read and write>"
-kubectl -n platform-system create secret docker-registry harbor-push \
-  --docker-server="<master1-public-ip>:30003" \
-  --docker-username='robot$push' --docker-password="<harbor-push-robot-token>"
-```
-
-- 如果业务仓库（`micro-bilibili`）是私有的，`build-app` 的 `git-clone` 还需要一个
-  `basic-auth` Secret（`.gitconfig` + `.git-credentials`）；公开仓库可跳过。
-
-- 应用 Tekton 业务资源（当前没有 ArgoCD Application 负责它）：
-
-```bash
-kubectl apply -k cicd/tekton
-```
-
-- GitHub 仓库 Webhook：Payload URL `http://<master1-public-ip>:30081`，Content type `application/json`，Secret 填上面 `secretToken`，只订阅 push（main 分支）。
-
-## 8. Git push 与 ArgoCD
-
-`project-infra` 是独立 Git 仓库（remote 为 `micro-bl--manifest`）。先 commit/push，ArgoCD 根 Application 才能拉到内容。
-如果仓库是私有的，还需要在 ArgoCD 里配置该仓库的 repository credentials。
-
-```bash
-# 当前目录应为 project-infra 根目录
-git add -A
-git commit -m "prod only"
-git push origin main
-```
-
-然后在 ArgoCD 里确认 `root` → `platform-infra` / `apps-micro-bl` 同步成功。首次业务 Pod 需要等 Tekton 构建出 commit SHA 镜像并回写 `apps/micro-bl/values-prod.yaml` 后才能 Ready。
-
-首次部署是空库：`values-prod.yaml` 的 `autoMigrate` 已设为 `true`。如果想避免两个副本并发跑 DDL，
-可以先把三个服务的 `replicas` 临时改成 1，建表完成后恢复 2 并把 `autoMigrate` 改回 `false`。
-
-## 9. 验证
-
-```bash
-kubectl get nodes -o wide
-kubectl -n micro-bl get pods
-kubectl -n micro-bl get svc
-curl -k https://<master1-ip>:30003/api/v2.0/healthz
-curl -s http://<master1-ip>:30082/healthz
-```
-
-浏览器播放 MinIO 视频前，把内部根 CA（`micro-bl-ca` 的 `ca.crt`）导入系统/浏览器信任库；否则 `https://<master1-ip>:30900/...` 会证书告警。
-
-## 10. 销毁
-
-先删 MySQL 动态云盘，再 destroy 集群：
-
-```bash
-helm uninstall mysql -n middleware
-kubectl -n middleware delete pvc data-mysql-0
-# 等 PV 变成 Released/Deleted，确认阿里云控制台没有残留 ESSD
-kubectl get pv
-
-cd terraform
-terraform destroy
-```
-
-CSI 动态创建的云盘不在 Terraform state 里，漏删会继续计费。
-
-确认 ECS、CLB、数据盘、VPC、动态 ESSD 全部释放；按量付费下最贵的是 3 台 8C16G worker 和 CLB，别只删 ECS 留 CLB。
+| 范围/地址 | 用途 |
+|---|---|
+| `10.0.0.0/16` | VPC 网段 |
+| `10.0.1.0/24` | 交换机网段（节点与 CLB） |
+| `10.0.1.10` ~ `10.0.1.12` | 3 台 master 固定私网 IP（重建不漂移） |
+| `10.0.1.20` ~ `10.0.1.22` | 3 台 worker 固定私网 IP |
+| `10.244.0.0/16` | Pod 子网（Cilium） |
+| `10.96.0.0/12` | Service 子网（ClusterIP） |
+| `100.64.0.0/10` | 阿里云保留段：SLB 健康检查源（安全组需单独放行） |
+| 统一入口 EIP（绑 apiserver SLB） | SSH、kubectl、全部 NodePort 服务的固定公网地址；REPLACE_WITH_SERVER_IP、证书 IP SAN 均指向它，SLB 自动摘除故障 master（`terraform output entry_eip`） |
+| 公网 SLB 地址 | 业务/媒体站 443 入口（`terraform output public_slb_address`） |
+| `216.23.123.76/32` | 我自己的日常使用的机器 |

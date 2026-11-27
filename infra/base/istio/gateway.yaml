@@ -13,9 +13,24 @@ spec:
   selector:
     istio: ingressgateway
   servers:
+    # HTTP 80：直连 IP 的 demo 入口（http://<EIP>:30080 → NodePort 30080）
     - port:
         number: 80
         name: http
         protocol: HTTP
       hosts:
         - "*"
+    # HTTPS 443：域名入口（CDN 回源 / 直连域名）。TLS 在这里终结，
+    # 证书 = *.temporary-demo.xyz（cert-manager DNS-01 签发，Secret 见 wildcard-certificate.yaml）。
+    # 公网 SLB 443 透传到 NodePort 30443（见 terraform/slb.tf 与 istio/values-gateway.yaml）。
+    - port:
+        number: 443
+        name: https
+        protocol: HTTPS
+      tls:
+        mode: SIMPLE
+        # Secret 与 Gateway 同命名空间（istio-system），由 cert-manager 自动签发/续期
+        credentialName: temporary-demo-tls
+      hosts:
+        - "temporary-demo.xyz"
+        - "*.temporary-demo.xyz"

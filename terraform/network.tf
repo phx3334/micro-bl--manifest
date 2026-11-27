@@ -63,16 +63,73 @@ resource "alicloud_security_group_rule" "clb_health_check" {
   cidr_ip           = "100.64.0.0/10"
 }
 
+# 公网 SLB 的健康检查同样源自 100.64.0.0/10，探测后端 NodePort 30443（HTTPS）。
+# 少这一条的表现：公网入口 443 全部 503（后端全部被判不健康）。
+resource "alicloud_security_group_rule" "public_slb_health_check" {
+  type              = "ingress"
+  ip_protocol       = "tcp"
+  port_range        = "30443/30443"
+  priority          = 5
+  security_group_id = alicloud_security_group.this.id
+  cidr_ip           = "100.64.0.0/10"
+}
+
+# EIP 入口监听（见 slb.tf 的 entry_listeners）健康检查同样源自 100.64.0.0/10，
+# 探测 SSH 与各 NodePort（30080 = HTTP 直连入口也在内）。
+# 少这些条的表现：EIP 对应端口全部连不上（后端被判不健康）。
+resource "alicloud_security_group_rule" "entry_slb_health_check" {
+  for_each = toset(["22", "30003", "30080", "30081", "30082", "30300", "30400", "30900"])
+
+  type              = "ingress"
+  ip_protocol       = "tcp"
+  port_range        = "${each.value}/${each.value}"
+  priority          = 6
+  security_group_id = alicloud_security_group.this.id
+  cidr_ip           = "100.64.0.0/10"
+}
+
+# Cloudflare CDN 回源：边缘节点源 IP 落在这些段（官方清单 https://www.cloudflare.com/ips/），
+# 回源目标是公网 SLB:443 → 后端 NodePort 30443。CLB 四层保留客户端源 IP，
+# 所以后端安全组看到的是 Cloudflare 边缘 IP，必须单独放行，否则 CDN 开橙云后全 522。
+# 只放 IPv4（Cloudflare 回源默认走 IPv4）；清单变动时更新此列表。
+resource "alicloud_security_group_rule" "cloudflare_origin" {
+  for_each = toset([
+    "173.245.48.0/20",
+    "103.21.244.0/22",
+    "103.22.200.0/22",
+    "103.31.4.0/22",
+    "141.101.64.0/18",
+    "108.162.192.0/18",
+    "190.93.240.0/20",
+    "188.114.96.0/20",
+    "197.234.240.0/22",
+    "198.41.128.0/17",
+    "162.158.0.0/15",
+    "104.16.0.0/13",
+    "104.24.0.0/14",
+    "172.64.0.0/13",
+    "131.0.72.0/22",
+  ])
+
+  type              = "ingress"
+  ip_protocol       = "tcp"
+  port_range        = "30443/30443"
+  priority          = 7
+  security_group_id = alicloud_security_group.this.id
+  cidr_ip           = each.value
+}
+
 # 外部入口：只保留 prod 真正需要浏览器访问的 NodePort；
 # Prometheus / Alertmanager / Tempo 等内部组件保持 ClusterIP，排障走 port-forward。
 locals {
   node_ports = toset([
     "30003", # Harbor HTTPS
-    "30080", # Istio ingressgateway
+    "30080", # Istio ingressgateway HTTP（直连 http://IP:30080）
     "30081", # Tekton EventListener
     "30082", # ArgoCD
     "30300", # Grafana
     "30400", # Hubble UI
+    "30443", # Istio ingressgateway HTTPS（直连/调试 https://IP:30443）
     "30900", # MinIO API
   ])
 }

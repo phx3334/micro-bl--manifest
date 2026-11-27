@@ -41,3 +41,90 @@ resource "alicloud_slb_backend_server" "apiserver" {
     }
   }
 }
+
+# ---------------------------------------------------------------------------
+# EIP 入口监听（EIP 绑定本 SLB，见 eip.tf）：原先这些端口直连 master1 的 EIP，
+# master1 单点；现在经 SLB 分发到健康 master（NodePort 由 Cilium eBPF 全节点转发）。
+# 22 走 SLB 后 SSH 落到任一 master，hostname 可辨认；Ansible 仍按节点公网 IP 直连。
+# 健康检查源 100.64.0.0/10 的放行见 network.tf。
+locals {
+  entry_listeners = {
+    "22"    = "ssh"
+    "30003" = "harbor"
+    "30080" = "istio-ingress"
+    "30081" = "tekton-webhook"
+    "30082" = "argocd"
+    "30300" = "grafana"
+    "30400" = "hubble"
+    "30900" = "minio"
+  }
+}
+
+resource "alicloud_slb_listener" "entry" {
+  for_each = local.entry_listeners
+
+  load_balancer_id          = alicloud_slb_load_balancer.apiserver.id
+  protocol                  = "tcp"
+  frontend_port             = tonumber(each.key)
+  backend_port              = tonumber(each.key)
+  bandwidth                 = -1 # 跟随 EIP 带宽上限，不单独限速
+  scheduler                 = "wrr"
+  health_check              = "on"
+  health_check_type         = "tcp"
+  health_check_connect_port = tonumber(each.key)
+  health_check_interval     = 5
+  health_check_timeout      = 3
+  healthy_threshold         = 3
+  unhealthy_threshold       = 3
+}
+
+# ---------------------------------------------------------------------------
+# 公网业务/媒体入口：浏览器与 Cloudflare CDN 回源都走这里，不再直连节点公网 IP。
+# TCP 443 透传到节点 NodePort 30443（Istio Gateway 终止 TLS、按 Host/SNI 分流
+# 业务站与 media.temporary-demo.xyz，证书为 *.temporary-demo.xyz，cert-manager
+# 自动签发续期）。CDN 回源源 IP 是 Cloudflare 边缘段，安全组需单独放行
+# （见 network.tf 的 cloudflare_origin）。节点直连的 NodePort 仅保留管理用途。
+# 按流量计费，bandwidth 是突发上限，与节点侧 internet_max_bandwidth_out 同变量。
+resource "alicloud_slb_load_balancer" "public" {
+  load_balancer_name = "${local.name_prefix}-public"
+  address_type       = "internet"
+  # 必须落在集群 VPC 的交换机内：后端是 VPC 内的 ECS，经典网络实例挂不上 VPC 后端。
+  # address_type=internet 时指定 vswitch 不影响分配公网 IP。
+  vswitch_id           = alicloud_vswitch.this.id
+  load_balancer_spec   = "slb.s1.small"
+  payment_type         = "PayAsYouGo"
+  internet_charge_type = "PayByTraffic"
+  bandwidth            = var.internet_max_bandwidth_out
+
+  tags = merge(local.common_tags, { role = "public-entry" })
+}
+
+resource "alicloud_slb_listener" "public_https" {
+  load_balancer_id          = alicloud_slb_load_balancer.public.id
+  protocol                  = "tcp"
+  frontend_port             = 443
+  backend_port              = 30443 # → ingressgateway HTTPS（NodePort 30443，TLS 在 Istio 终结）
+  bandwidth                 = -1    # 跟随实例带宽上限，不单独限速
+  scheduler                 = "wrr"
+  health_check              = "on"
+  health_check_type         = "tcp"
+  health_check_connect_port = 30443
+  health_check_interval     = 5
+  health_check_timeout      = 3
+  healthy_threshold         = 3
+  unhealthy_threshold       = 3
+}
+
+# 所有节点都进后端组：Cilium eBPF 在每台节点上都转发 NodePort 30443，
+# ingressgateway Pod 调度到哪台都能被访问到
+resource "alicloud_slb_backend_server" "public" {
+  load_balancer_id = alicloud_slb_load_balancer.public.id
+
+  dynamic "backend_servers" {
+    for_each = concat(alicloud_instance.master[*].id, alicloud_instance.worker[*].id)
+    content {
+      server_id = backend_servers.value
+      weight    = 100
+    }
+  }
+}

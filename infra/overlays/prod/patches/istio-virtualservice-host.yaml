@@ -1,4 +1,5 @@
-# 与 Gateway 的 hosts 保持一致（同一个公网 IP），否则 VirtualService 绑不到 Gateway。
+# 与 Gateway 的 hosts 保持一致，否则 VirtualService 绑不到 Gateway：
+# IP 对应 HTTP 80 直连入口，域名对应 HTTPS 443（CDN 回源 / 直连域名）。
 apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
 metadata:
@@ -7,3 +8,5 @@ metadata:
 spec:
   hosts:
     - REPLACE_WITH_SERVER_IP
+    - temporary-demo.xyz
+    - "*.temporary-demo.xyz"

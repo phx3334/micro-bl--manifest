@@ -1,4 +1,3 @@
-
 labels:
   istio: ingressgateway
 
@@ -7,8 +6,10 @@ service:
   # 用 NodePort 最省事（云服务器安全组要放行）
   type: NodePort
   # 注意：这里覆盖 ports 是整体替换（helm 列表不合并），会丢掉默认的
-  # status-port(15021) 与 https(443)。demo 走 HTTP 无 TLS、不抓网关自身状态端口，
-  # 影响可接受；以后要开 TLS 需把 https 端口一并补回。
+  # status-port(15021)。demo 不抓网关自身状态端口，影响可接受。
+  # https(443→8443) 必须带上：Gateway 的 443 SIMPLE TLS 在此终结
+  # （证书由 cert-manager 签发，见 infra/cert-manager/manifests/wildcard-certificate.yaml），
+  # 公网 SLB 443 透传到下面固定的 NodePort 30443（见 terraform/slb.tf）。
   ports:
     - name: http
       port: 80
@@ -16,6 +17,11 @@ service:
       protocol: TCP
       # 固定端口而不是让 K8s 随机分配
       nodePort: 30080
+    - name: https
+      port: 443
+      targetPort: 8443
+      protocol: TCP
+      nodePort: 30443
 
 resources:
   requests:

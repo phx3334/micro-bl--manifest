@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# etcd 每小时快照（kubeadm 叠放式 etcd，装在第一个 master 的 cron 里）。
+#
+# etcd 只存 K8s API 对象（几 MB~几百 MB），全量快照几秒钟，每日一次零压力。
+# 快照落在本机 {{ etcd_backup_dir }}，保留 {{ etcd_backup_keep }} 份自动轮转。
+# 注意：本机备份防"手滑"（误删资源/改坏配置后整库回滚），不防节点/集群毁灭；
+#       要跨集群恢复需把快照再上传到集群外存储（MinIO 在集群内，做不到）。
+#
+# 恢复演练（整库回滚，恢复期间集群不可写，务必先在测试环境走一遍）：
+#   etcdctl snapshot restore <快照文件> --data-dir /tmp/etcd-restore \
+#     --name <节点名> --initial-cluster <节点名>=https://127.0.0.1:2380 \
+#     --initial-cluster-token etcd-cluster --initial-advertise-peer-urls https://127.0.0.1:2380
+# 日常"只救几个资源"用 Velero/从 Git 重放，不要动 etcd restore。
+set -euo pipefail
+
+BACKUP_DIR="{{ etcd_backup_dir }}"
+KEEP={{ etcd_backup_keep }}
+TS="$(date +%Y%m%d-%H%M%S)"
+SNAP_NAME="etcd-snapshot-${TS}.db"
+
+mkdir -p "${BACKUP_DIR}"
+
+# etcd 是静态 Pod，Pod 名 = etcd-<节点名>；etcdctl 只存在于 etcd 容器镜像里，
+# 所以进容器执行，快照先写容器内 /var/lib/etcd（hostPath，宿主机可见）
+POD="$(kubectl -n kube-system get pod -l component=etcd -o name | head -n1)"
+if [ -z "${POD}" ]; then
+  echo "[$(date -Is)] ERROR: 未找到 etcd Pod" >&2
+  exit 1
+fi
+
+ETCDCTL="etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key"
+
+# 1) 生成快照（写进容器的 /var/lib/etcd）
+kubectl -n kube-system exec "${POD}" -- ${ETCDCTL} snapshot save "/var/lib/etcd/${SNAP_NAME}"
+
+# 2) 校验：快照文件非空才算数——坏快照比没有快照更危险
+#    （snapshot status 需要完整解析元数据，非空已足够拦截"写了一半"的情况）
+if ! kubectl -n kube-system exec "${POD}" -- test -s "/var/lib/etcd/${SNAP_NAME}"; then
+  echo "[$(date -Is)] ERROR: 快照校验失败（文件为空）" >&2
+  kubectl -n kube-system exec "${POD}" -- rm -f "/var/lib/etcd/${SNAP_NAME}"
+  exit 1
+fi
+
+# 3) 挪到备份目录（宿主机路径），失败即报错（不吞掉 mv）
+mv "/var/lib/etcd/${SNAP_NAME}" "${BACKUP_DIR}/${SNAP_NAME}"
+
+# 4) 轮转：按文件名（含时间戳）排序，只留最近 KEEP 份
+ls -1t "${BACKUP_DIR}"/etcd-snapshot-*.db 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -f
+
+echo "[$(date -Is)] OK: ${BACKUP_DIR}/${SNAP_NAME} ($(du -h "${BACKUP_DIR}/${SNAP_NAME}" | cut -f1))"
+ls -lh "${BACKUP_DIR}" | tail -n +2

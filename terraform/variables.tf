@@ -98,8 +98,8 @@ variable "ssh_cidr" {
   default     = ""
 
   validation {
-    condition     = length(trimspace(var.ssh_cidr)) > 0
-    error_message = "必须提供 ssh_cidr（例如 1.2.3.4/32），不允许留空。"
+    condition     = length(trimspace(var.ssh_cidr)) > 0 && var.ssh_cidr != "0.0.0.0/0" && can(cidrhost(var.ssh_cidr, 0))
+    error_message = "必须提供 ssh_cidr（例如 1.2.3.4/32），禁止留空，也禁止 0.0.0.0/0（SSH 与 6443 只应对自己的公网 IP 开放）。"
   }
 }
 

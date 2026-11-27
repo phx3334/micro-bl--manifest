@@ -1,0 +1,20 @@
+# *.temporary-demo.xyz 通配符证书（只有 DNS-01 能签通配符，见 issuer-letsencrypt-cloudflare.yaml）。
+#
+# Secret 落在 istio-system：Gateway 的 credentialName 按同命名空间查找，
+# 证书给 ingressgateway 的 443 SIMPLE TLS 用（见 infra/base/istio/gateway.yaml）。
+# 90 天有效期，到期前 30 天 cert-manager 自动发起续期（重复 DNS-01 流程）。
+# 签发状态：kubectl -n istio-system get certificate temporary-demo-wildcard
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: temporary-demo-wildcard
+  namespace: istio-system
+spec:
+  secretName: temporary-demo-tls
+  issuerRef:
+    name: letsencrypt-cloudflare
+    kind: ClusterIssuer
+  dnsNames:
+    # 通配符不覆盖顶级域，apex 必须单独列
+    - temporary-demo.xyz
+    - "*.temporary-demo.xyz"

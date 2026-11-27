@@ -3,11 +3,11 @@ terraform {
 
   required_providers {
     alicloud = {
-      source = "aliyun/alicloud"
+      source  = "aliyun/alicloud"
       version = "1.294.0"
     }
     local = {
-      source  = "hashicorp/local"    #插件来源地址
+      source  = "hashicorp/local" #插件来源地址
       version = "2.5.2"
     }
   }

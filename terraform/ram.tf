@@ -51,6 +51,16 @@ resource "alicloud_ram_policy" "csi" {
 
 resource "alicloud_ram_role_policy_attachment" "csi" {
   policy_name = alicloud_ram_policy.csi.policy_name
-  role_name   = alicloud_ram_role.csi.name
+  role_name   = alicloud_ram_role.csi.role_name
   policy_type = "Custom"
+}
+
+# worker 实例绑定 CSI RAM 角色（替代 alicloud_instance 上已弃用的 role_name 字段）。
+# CSI Controller/Node 通过实例元数据获取 STS，不需要在集群里放 AccessKey。
+# 用 count 而非 for_each：实例 ID 在 apply 时才可知，for_each 的键必须静态确定。
+resource "alicloud_ecs_ram_role_attachment" "csi" {
+  count = var.worker_count
+
+  instance_id   = alicloud_instance.worker[count.index].id
+  ram_role_name = alicloud_ram_role.csi.role_name
 }

@@ -1,9 +1,12 @@
-# 网关 host：填你实际访问用的地址，这里就是云服务器的公网 IP。
+# 网关 host：HTTP 填你实际访问用的地址（统一入口 EIP），HTTPS 是固定域名。
 #
-# 必须与浏览器地址栏的主机部分一致：访问 http://1.2.3.4:30080 时，
+# HTTP 80 必须与浏览器地址栏的主机部分一致：访问 http://1.2.3.4:30080 时，
 # 浏览器发出的 Host 是 "1.2.3.4:30080"，此处写 1.2.3.4 即可（端口由 Istio 自动匹配）。
-#
 # 没替换成真实 IP 会返回 404 NR（no route）——不是网络不通，是 Host 头对不上。
+#
+# HTTPS 443 按 SNI/Host 匹配域名（CDN 回源与直连域名都走这里），不随环境变化。
+# 注意：kustomize 对 CRD 是整体替换 servers 数组，必须把 base 的两个 server
+# 全部带上，否则 443 会被覆盖丢失。
 apiVersion: networking.istio.io/v1beta1
 kind: Gateway
 metadata:
@@ -17,3 +20,13 @@ spec:
         protocol: HTTP
       hosts:
         - REPLACE_WITH_SERVER_IP
+    - port:
+        number: 443
+        name: https
+        protocol: HTTPS
+      tls:
+        mode: SIMPLE
+        credentialName: temporary-demo-tls
+      hosts:
+        - "temporary-demo.xyz"
+        - "*.temporary-demo.xyz"

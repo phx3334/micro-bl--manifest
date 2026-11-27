@@ -16,3 +16,4 @@ ${w.name} ansible_host=${w.public_ip} private_ip=${w.private_ip}
 ansible_user=root
 ansible_python_interpreter=/usr/bin/python3
 apiserver_endpoint=${apiserver_endpoint} # CLB控制面入口
+entry_ip=${entry_ip} # 统一公网入口（EIP 绑 SLB）：Harbor/证书/REPLACE_WITH_SERVER_IP 用它

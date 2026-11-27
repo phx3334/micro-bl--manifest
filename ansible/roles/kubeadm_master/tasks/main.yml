@@ -22,8 +22,15 @@
     mode: "0600"
   when: inventory_hostname == groups['masters'][0]
 
+# kube-proxy 不装（kubeProxyReplacement=true，见 infra/cilium/values.yaml）：
+# Cilium 启用时跳过 addon/kube-proxy，Service 转发全交给 eBPF，两者同存会抢转发规则；
+# 只有 install_cilium=false（无 Cilium 兜底）时才保留 kube-proxy。
 - name: 初始化第一个 master
-  command: kubeadm init --config {{ ansible_workdir }}/kubeadm-init.yaml --upload-certs
+  command: >-
+    kubeadm init
+    --config {{ ansible_workdir }}/kubeadm-init.yaml
+    --upload-certs
+    {{ '--skip-phases=addon/kube-proxy' if install_cilium | default(true) | bool else '' }}
   args:
     creates: /etc/kubernetes/admin.conf
   when: inventory_hostname == groups['masters'][0]
@@ -94,3 +101,10 @@
         owner: root
         group: root
         mode: "0600"
+
+# etcd 每小时快照（仅第一个 master）：依赖上面的 root kubeconfig（kubectl exec 用）
+- name: 配置 etcd 定时备份
+  include_tasks: etcd_backup.yml
+  when:
+    - inventory_hostname == groups['masters'][0]
+    - install_etcd_backup | default(true) | bool

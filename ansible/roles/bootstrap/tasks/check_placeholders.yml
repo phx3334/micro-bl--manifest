@@ -33,6 +33,6 @@
     that:
       - placeholder_hits.stdout == ""
     fail_msg: |
-      以下位置仍含未替换的 REPLACE_WITH_SERVER_IP，请统一替换成第一台 master 的公网 IP
-      （Harbor / MinIO 证书的 IP SAN 只签这一台；取 terraform output master_public_ips[0]）：
+      以下位置仍含未替换的 REPLACE_WITH_SERVER_IP，请统一替换成统一入口 EIP
+      （Harbor / MinIO 证书的 IP SAN 只签这一个地址；取 terraform output entry_eip）：
       {{ placeholder_hits.stdout }}

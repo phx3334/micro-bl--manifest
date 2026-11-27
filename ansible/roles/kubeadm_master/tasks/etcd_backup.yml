@@ -1,0 +1,35 @@
+# etcd 每小时快照：脚本 + cron 装到第一个 master（etcd 在每台 master 都有，
+# 但任一台打快照即可，没必要三份；cron 也只该有一个）。
+---
+- name: 创建 etcd 备份目录
+  file:
+    path: "{{ etcd_backup_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: 部署 etcd 备份脚本
+  template:
+    src: etcd-backup.sh.j2
+    dest: /usr/local/bin/etcd-backup.sh
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: 注册每小时 cron
+  cron:
+    name: "etcd hourly snapshot"
+    user: root
+    job: "/usr/local/bin/etcd-backup.sh >> /var/log/etcd-backup.log 2>&1"
+    minute: "{{ etcd_backup_cron.split(' ')[0] }}"
+    hour: "{{ etcd_backup_cron.split(' ')[1] }}"
+    day: "{{ etcd_backup_cron.split(' ')[2] }}"
+    month: "{{ etcd_backup_cron.split(' ')[3] }}"
+    weekday: "{{ etcd_backup_cron.split(' ')[4] }}"
+
+# 首次部署立刻跑一次：既验证脚本可用，也让"备份已存在"从第一天开始成立
+- name: 立即执行一次备份（验证脚本 + 首份快照）
+  command: /usr/local/bin/etcd-backup.sh
+  register: etcd_backup_first
+  changed_when: "'OK:' in etcd_backup_first.stdout"

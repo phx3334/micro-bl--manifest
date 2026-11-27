@@ -15,3 +15,8 @@ resources:
   # 中间件单向 TLS：4 张服务端证书 + 根 CA 跨命名空间分发
   - middleware-certificates.yaml
   - internal-ca-distributor.yaml
+  # Let's Encrypt 通配符证书（DNS-01 via Cloudflare）：给 Istio Gateway 443 用。
+  # 依赖 cloudflare-api-token Secret（见 issuer-letsencrypt-cloudflare.yaml 头注释），
+  # Secret 不存在时 Certificate 会 Pending 但不影响上面的内部 CA 链。
+  - issuer-letsencrypt-cloudflare.yaml
+  - wildcard-certificate.yaml

@@ -28,7 +28,7 @@ config:
     sentinelAddrs: "redis.middleware:26379"
   minio:
     # 浏览器可达地址（Pod 内也走它）：prod 的 MinIO 同样开放 NodePort 30900
-    # （见 infra/middleware/minio/values-prod.yaml），部署前把 REPLACE_WITH_SERVER_IP 换成第一台 master 公网 IP
+    # （见 infra/middleware/minio/values-prod.yaml），部署前把 REPLACE_WITH_SERVER_IP 换成统一入口 EIP（terraform output entry_eip）
     endpoint: "REPLACE_WITH_SERVER_IP:30900"
     publicRead: false
   otel:

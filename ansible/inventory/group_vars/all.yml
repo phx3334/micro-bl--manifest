@@ -76,3 +76,10 @@ install_istio: true
 install_harbor: true
 install_tekton: true
 install_argocd: true
+
+# ── etcd 每小时快照（装在第一个 master 的 cron，见 roles/kubeadm_master）────
+# 临时实验集群：小时级备份，破坏后最多丢 1 小时的资源状态。
+# 防"手滑"级备份：误删资源/改坏配置后可整库回滚；不防节点/集群毁灭（本机存储）。
+etcd_backup_dir: /var/backups/etcd
+etcd_backup_keep: 24 # 每小时一份，保留最近 24 份（24 小时）自动轮转
+etcd_backup_cron: "0 * * * *" # 每小时整点
