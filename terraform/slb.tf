@@ -79,10 +79,12 @@ resource "alicloud_slb_listener" "entry" {
 }
 
 # ---------------------------------------------------------------------------
-# 公网业务/媒体入口：浏览器与 Cloudflare CDN 回源都走这里，不再直连节点公网 IP。
-# TCP 443 透传到节点 NodePort 30443（Istio Gateway 终止 TLS、按 Host/SNI 分流
-# 业务站与 media.temporary-demo.xyz，证书为 *.temporary-demo.xyz，cert-manager
-# 自动签发续期）。CDN 回源源 IP 是 Cloudflare 边缘段，安全组需单独放行
+# 公网站点/API 入口：浏览器与 Cloudflare CDN 回源都走这里，不再直连节点公网 IP。
+# TCP 443 透传到节点 NodePort 30443（Istio Gateway 终止 TLS，证书为
+# *.temporary-demo.xyz，cert-manager 自动签发续期），按 Host 分流站点与 API。
+# 媒体（视频/封面/头像）不经过本 SLB：MinIO 仍由 NodePort 30900 直连，
+# 视频走 CDN 受 Cloudflare 非 Enterprise 计划条款限制，课程实验不接。
+# CDN 回源源 IP 是 Cloudflare 边缘段，安全组需单独放行
 # （见 network.tf 的 cloudflare_origin）。节点直连的 NodePort 仅保留管理用途。
 # 按流量计费，bandwidth 是突发上限，与节点侧 internet_max_bandwidth_out 同变量。
 resource "alicloud_slb_load_balancer" "public" {

@@ -9,7 +9,7 @@ spec:
   duration: 8760h        # 1 年
   renewBefore: 720h      # 提前 30 天自动续期
   ipAddresses:
-    - REPLACE_WITH_SERVER_IP
+    - 121.196.109.9
   privateKey:
     algorithm: RSA
     size: 2048

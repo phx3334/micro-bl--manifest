@@ -2,7 +2,7 @@ images:
   # 必须与 Harbor 的 externalURL、Harbor 证书 SAN、Tekton trigger-template
   # 的 image-registry 逐字一致；Harbor 证书由 cert-manager 内部 CA 签发，
   # 节点 containerd 需要信任该 CA（见 cicd/harbor/values.yaml 文末）
-  registry: REPLACE_WITH_SERVER_IP:30003/micro-bl
+  registry: 121.196.109.9:30003/micro-bl
   # 初始占位；Tekton 的 update-gitops 会回写为 commit SHA（不可变）+ IfNotPresent。
   # values-prod 不再覆盖，保证生产始终按不可变 tag 拉取，避免节点上残留旧镜像。
   tag: stable
@@ -10,7 +10,7 @@ images:
   # harbor-pull 需手工创建在 micro-bl 命名空间（与 Tekton 的 harbor-push 分开：
   # 一个只读、一个可推，凭据权限不同）：
   #   kubectl -n micro-bl create secret docker-registry harbor-pull \
-  #     --docker-server=REPLACE_WITH_SERVER_IP:30003 \
+  #     --docker-server=121.196.109.9:30003 \
   #     --docker-username='robot$pull' --docker-password='<token>'
   pullSecret: harbor-pull
 

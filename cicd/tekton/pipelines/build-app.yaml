@@ -22,7 +22,7 @@ spec:
       type: string
     - name: image-registry
       type: string
-      description: 如 REPLACE_WITH_SERVER_IP:30003/micro-bl
+      description: 如 121.196.109.9:30003/micro-bl
     - name: tag
       type: string
       description: 不可变 tag，直接用 commit SHA

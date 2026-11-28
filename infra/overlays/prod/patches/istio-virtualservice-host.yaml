@@ -7,6 +7,6 @@ metadata:
   namespace: micro-bl
 spec:
   hosts:
-    - REPLACE_WITH_SERVER_IP
+    - 121.196.109.9
     - temporary-demo.xyz
     - "*.temporary-demo.xyz"

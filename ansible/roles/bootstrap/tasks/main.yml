@@ -79,4 +79,4 @@
       - "Grafana：http://{{ server_public_ip }}:30300（phx / 见 grafana-admin Secret，需先手工安装 observability 栈）"
       - "Tekton：控制器已装；业务 Pipeline/Task/Trigger 需 apply -k cicd/tekton"
       - "prod 凭据：micro-bl-credentials / minio-credentials / tempo-s3 / grafana-admin / mysql-credentials / redis-credentials / harbor-credentials / harbor-pull 需提前创建"
-      - "确认所有 REPLACE_WITH_SERVER_IP 已替换后再 push manifest 仓库，ArgoCD 才能同步成功"
+      - "确认所有 IP 已替换为本次 entry_eip（121.196.109.9）后再 push manifest 仓库，ArgoCD 才能同步成功"

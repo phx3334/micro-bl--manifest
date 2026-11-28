@@ -19,7 +19,7 @@ spec:
         name: http
         protocol: HTTP
       hosts:
-        - REPLACE_WITH_SERVER_IP
+        - 121.196.109.9
     - port:
         number: 443
         name: https

@@ -40,10 +40,10 @@ expose:
 
 # 必须与客户端实际使用的地址逐字一致：它决定 portal 上展示的 docker push 命令
 # 和 token service 返回给客户端的地址；写错的表现是"登录成功但 push 401"。
-# 实验环境直接用节点 IP（与 MinIO 的 REPLACE_WITH_SERVER_IP:30900 同风格），
+# 实验环境直接用节点 IP（与 MinIO 的 121.196.109.9:30900 同风格），
 # 避免为 harbor.example.com 额外维护 CoreDNS/hostAliases。
 # Ansible 会用 --set 覆盖；手工安装时必须显式 --set externalURL=...
-externalURL: https://REPLACE_WITH_SERVER_IP:30003
+externalURL: https://121.196.109.9:30003
 
 # ── 存储：全部本地 PVC（单机 demo；生产换 S3/外部 DB 只改这一段） ──
 persistence:

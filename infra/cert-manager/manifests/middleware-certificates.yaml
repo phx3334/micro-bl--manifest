@@ -143,7 +143,7 @@ spec:
     - minio.middleware.svc.cluster.local
   ipAddresses:
     # ⚠️ 与 harbor-tls 同一个占位符：浏览器直链和 Pod 都走 NodePort IP
-    - REPLACE_WITH_SERVER_IP
+    - 121.196.109.9
   issuerRef:
     name: micro-bl-ca-issuer
     kind: ClusterIssuer

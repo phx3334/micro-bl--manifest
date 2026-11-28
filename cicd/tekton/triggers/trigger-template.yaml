@@ -2,8 +2,8 @@
 #
 # 环境相关的三个值（registry / infra 仓库 / 写哪个 values）用模板默认值集中在这里，
 # 不散落在 TriggerBinding 里。
-# REPLACE_WITH_SERVER_IP 必须替换成与 Harbor externalURL、apps values.images.registry
-# 完全一致的地址，否则镜像推到 A 地址、部署从 B 地址拉。
+# image-registry 必须与 Harbor externalURL、apps values.images.registry 完全一致
+# （当前为统一入口 EIP 121.196.109.9:30003），否则镜像推到 A 地址、部署从 B 地址拉。
 apiVersion: triggers.tekton.dev/v1beta1
 kind: TriggerTemplate
 metadata:
@@ -17,7 +17,7 @@ spec:
     - name: revision
     - name: branch
     - name: image-registry
-      default: "REPLACE_WITH_SERVER_IP:30003/micro-bl"
+      default: "121.196.109.9:30003/micro-bl"
     - name: infra-repo-url
       default: "https://github.com/phx3334/micro-bl--manifest.git"
     - name: infra-values-file

@@ -40,19 +40,21 @@ project-infra/
 
 ## 端口清单
 
-### 安全组放行（来源已收敛，见 terraform/network.tf）
+### 安全组放行（来源由 tfvars 配置，见 terraform/network.tf）
 `node_port_cidr`:允许访问 NodePort 入口的来源 IP 范围
 `ssh_cidr`:允许进行对master进行ssh连接的ip的范围
 
+当前 tfvars 两者均为 `0.0.0.0/0`（放行所有 IP：本机 IP 会变、常开代理，收敛成 /32 容易连不上）。
+
 | 端口 | 协议 | 用途 | 来源 |
 |---|---|---|---|
-| 22 | TCP | SSH 管理 | `ssh_cidr`（本机公网 IP/32） |
+| 22 | TCP | SSH 管理 | `ssh_cidr` |
 | 6443 | TCP | Kubernetes apiserver（kubectl 直连） | `ssh_cidr` |
 | 6443 | TCP | 同上 | `100.64.0.0/10`（内网 CLB 健康检查源段） |
 | 30080 | TCP | Istio ingressgateway 的 NodePort（公网 SLB 健康检查探测它） | `100.64.0.0/10` |
-| 30003 | TCP | Harbor HTTPS | `node_port_cidr`（本机公网 IP/32） |
+| 30003 | TCP | Harbor HTTPS | `node_port_cidr` |
 | 30080 | TCP | Istio ingressgateway（业务/媒体站入口） | `node_port_cidr` |
-| 30081 | TCP | Tekton EventListener（Git webhook） | `node_port_cidr` |
+| 30081 | TCP | Tekton EventListener（Git webhook，GitHub 出口 IP 不固定必须放行所有） | `node_port_cidr` |
 | 30082 | TCP | ArgoCD UI | `node_port_cidr` |
 | 30300 | TCP | Grafana 看板 | `node_port_cidr` |
 | 30400 | TCP | Cilium Hubble UI | `node_port_cidr` |
@@ -61,14 +63,28 @@ project-infra/
 | 全部 | all | VPC 内互通（etcd 2379/2380、kubelet 10250、Cilium VXLAN、NodePort 互访） | `vpc_cidr` |
 | 全部 | all | 出方向 | `0.0.0.0/0` |
 
-- `ssh_cidr` / `node_port_cidr` 在 variables.tf 中强制校验：禁止留空、禁止 `0.0.0.0/0`。
+- `ssh_cidr` / `node_port_cidr` 在 variables.tf 中强制校验：必须为合法 CIDR，禁止留空。放行 `0.0.0.0/0` 后 22/6443/各 NodePort 对全网可见——SSH 靠密钥对认证兜底，但 Harbor/ArgoCD/Grafana 等弱密码入口暴露面变大，演示结束请立即 destroy。
+
+### 实例计费（terraform/instances.tf）
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `worker_spot_strategy` | `SpotAsPriceGo` | 工作节点抢占式，最高约省 90%，跟随市价；库存不足时创建会失败，重试即可 |
+| `master_spot_strategy` | `NoSpot` | 控制节点保持按量：etcd 需要多数派，被回收等于丢控制面 |
+| `spot_price_limit` | `0` | 仅 `SpotWithPriceLimit` 生效，单位元/小时 |
+
+- 抢占式实例**只能释放、不能 stop/start**，回收前约 5 分钟可通过实例元数据 `spot/termination-time` 感知；节点被回收后 `terraform apply` 会重建（固定私网 IP 不变）。
+- 抢占价只覆盖实例规格本身；云盘（ESSD）、公网流量、CLB、EIP 仍按各自计费项收费。
+- 全部恢复按量：`master_spot_strategy = "NoSpot"`、`worker_spot_strategy = "NoSpot"`。
+
+临时实验最省方案（已在本地 tfvars 生效，不进仓库默认值）：`ecs.e-c1m2.large` + `ecs.e-c1m2.2xlarge`，规格不变但改为共享型 e，约为 c7 价格的 55%。代价是共享 CPU、无性能 SLA，高负载时计算性能会波动；etcd/Prometheus 这类延迟敏感负载可能变慢，觉得不稳就把 master 换回 `ecs.c7.large`。
 
 ### 负载均衡监听（terraform/slb.tf）
 
 | SLB | 监听 | 后端 | 说明 |
 |---|---|---|---|
 | 内网 `micro-bl-apiserver` | TCP 6443 | 3 台 master:6443 | kubeadm `controlPlaneEndpoint`（固定私网 VIP） |
-| 公网 `micro-bl-public` | TCP 443 | 全部 6 节点:30443 | 浏览器与 Cloudflare CDN 回源入口；Istio Gateway 在 443 终止 TLS（证书 `*.temporary-demo.xyz`，cert-manager + Cloudflare DNS-01 自动签发续期），按 Host/SNI 分流业务站与 `media.temporary-demo.xyz` |
+| 公网 `micro-bl-public` | TCP 443 | 全部 6 节点:30443 | 站点与 API 入口（浏览器直连与 Cloudflare CDN 回源）；Istio Gateway 在 443 终止 TLS（证书 `*.temporary-demo.xyz`，cert-manager + Cloudflare DNS-01 自动签发续期）。媒体不经过本 SLB：视频/封面/头像仍由 MinIO `EIP:30900` 直连，不接 CDN |
 
 ### 集群内部端口（ClusterIP，不对公网暴露）
 
@@ -99,4 +115,4 @@ curl "http://localhost:3100/loki/api/v1/query_range?query={app=\"web\"}&limit=5"
 | `100.64.0.0/10` | 阿里云保留段：SLB 健康检查源（安全组需单独放行） |
 | 统一入口 EIP（绑 apiserver SLB） | SSH、kubectl、全部 NodePort 服务的固定公网地址；REPLACE_WITH_SERVER_IP、证书 IP SAN 均指向它，SLB 自动摘除故障 master（`terraform output entry_eip`） |
 | 公网 SLB 地址 | 业务/媒体站 443 入口（`terraform output public_slb_address`） |
-| `216.23.123.76/32` | 我自己的日常使用的机器 |
+| `0.0.0.0/0` | SSH / kubectl / NodePort 入口来源（tfvars 中 `ssh_cidr`、`node_port_cidr`） |

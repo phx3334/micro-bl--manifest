@@ -28,8 +28,9 @@ config:
     sentinelAddrs: "redis.middleware:26379"
   minio:
     # 浏览器可达地址（Pod 内也走它）：prod 的 MinIO 同样开放 NodePort 30900
-    # （见 infra/middleware/minio/values-prod.yaml），部署前把 REPLACE_WITH_SERVER_IP 换成统一入口 EIP（terraform output entry_eip）
-    endpoint: "REPLACE_WITH_SERVER_IP:30900"
+    # （见 infra/middleware/minio/values-prod.yaml）；地址为统一入口 EIP
+    # （terraform output entry_eip），重建集群后需同步更新
+    endpoint: "121.196.109.9:30900"
     publicRead: false
   otel:
     # 头采 30%（与 istio sidecar 头采对齐；base 同为 0.3）；尾采策略见 observability/otel-collector/base/config.yaml

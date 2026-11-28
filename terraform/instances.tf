@@ -16,6 +16,10 @@ resource "alicloud_instance" "master" {
   private_ip           = local.master_private_ips[count.index]
   key_name             = alicloud_key_pair.this.key_pair_name
   instance_charge_type = "PostPaid"
+  # 默认 NoSpot：master 承载 etcd 与 apiserver，被回收会直接影响多数派与控制面。
+  # 想全集群抢占，把 master_spot_strategy 改成 SpotAsPriceGo。
+  spot_strategy    = var.master_spot_strategy
+  spot_price_limit = var.master_spot_strategy == "SpotWithPriceLimit" ? var.spot_price_limit : null
 
   # 公网：按流量计费，带宽上限只作为突发上限，不按带宽预付费。
   # 所有节点都有自动公网 IP 供 Ansible 按主机 SSH；对外服务入口是固定 EIP
@@ -43,6 +47,10 @@ resource "alicloud_instance" "worker" {
   private_ip           = local.worker_private_ips[count.index]
   key_name             = alicloud_key_pair.this.key_pair_name
   instance_charge_type = "PostPaid"
+  # 默认 SpotAsPriceGo：worker 无状态，被回收后 Deployment 会重建；
+  # 阿里云在回收前约 5 分钟通过实例元数据 spot/termination-time 通知。
+  spot_strategy    = var.worker_spot_strategy
+  spot_price_limit = var.worker_spot_strategy == "SpotWithPriceLimit" ? var.spot_price_limit : null
   # CSI Controller/Node 通过实例 RAM 角色访问 ECS OpenAPI，不在集群里放 AK；
   # 实例与角色的绑定见 ram.tf 的 alicloud_ecs_ram_role_attachment（role_name 字段已弃用）
 

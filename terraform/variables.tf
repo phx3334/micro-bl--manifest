@@ -69,10 +69,43 @@ variable "worker_data_disk_size" {
   default     = 80
 }
 
-variable "image_name_regex" {
-  description = "系统镜像名称正则（默认 Ubuntu 22.04）"
+variable "master_spot_strategy" {
+  description = "控制节点计费策略：NoSpot（按量，推荐）| SpotAsPriceGo（抢占，跟随市价）| SpotWithPriceLimit"
   type        = string
-  default     = "^ubuntu_22"
+  default     = "NoSpot"
+
+  validation {
+    condition     = contains(["NoSpot", "SpotAsPriceGo", "SpotWithPriceLimit"], var.master_spot_strategy)
+    error_message = "master_spot_strategy 只能是 NoSpot / SpotAsPriceGo / SpotWithPriceLimit。"
+  }
+}
+
+variable "worker_spot_strategy" {
+  description = "工作节点计费策略：默认 SpotAsPriceGo（抢占式，最高可省约 90%，但可能被回收）"
+  type        = string
+  default     = "SpotAsPriceGo"
+
+  validation {
+    condition     = contains(["NoSpot", "SpotAsPriceGo", "SpotWithPriceLimit"], var.worker_spot_strategy)
+    error_message = "worker_spot_strategy 只能是 NoSpot / SpotAsPriceGo / SpotWithPriceLimit。"
+  }
+}
+
+variable "spot_price_limit" {
+  description = "抢占式实例出价上限（元/小时），仅 SpotWithPriceLimit 生效；0 表示不设置"
+  type        = number
+  default     = 0
+}
+
+variable "image_name_regex" {
+  description = "系统镜像名称正则（Ubuntu 22.04 标准 20G 镜像）"
+  type        = string
+  # 必须钉住 20G 系列：^ubuntu_22 太宽，most_recent 会挑到最新的
+  # 100G GPU+CUDA 镜像（ubuntu_22_04_x64_100G_with_gpu_driver_and_cuda_alibase_*），
+  # 导致 system_disk_size=40 报 InvalidSystemDiskSize.LessThanImageSize。
+  # \d+G_alibase 要求容量后紧跟 _alibase，GPU 镜像中间插了 with_gpu_driver，
+  # 匹配不上；镜像恒为 20G，40GiB 系统盘永远满足 >= 镜像容量。
+  default = "^ubuntu_22_04_x64_20G_alibase"
 }
 
 variable "key_pair_name" {
@@ -93,24 +126,24 @@ variable "ssh_public_key" {
 }
 
 variable "ssh_cidr" {
-  description = "允许 SSH 与 6443（kubectl 直连 master）的来源 CIDR，强烈建议只填自己的公网 IP/32"
+  description = "允许 SSH 与 6443（kubectl 直连 master）的来源 CIDR；本机 IP 会变/开代理时用 0.0.0.0/0"
   type        = string
   default     = ""
 
   validation {
-    condition     = length(trimspace(var.ssh_cidr)) > 0 && var.ssh_cidr != "0.0.0.0/0" && can(cidrhost(var.ssh_cidr, 0))
-    error_message = "必须提供 ssh_cidr（例如 1.2.3.4/32），禁止留空，也禁止 0.0.0.0/0（SSH 与 6443 只应对自己的公网 IP 开放）。"
+    condition     = length(trimspace(var.ssh_cidr)) > 0 && can(cidrhost(var.ssh_cidr, 0))
+    error_message = "必须提供 ssh_cidr（合法 CIDR，例如 0.0.0.0/0 或 1.2.3.4/32），禁止留空。"
   }
 }
 
 variable "node_port_cidr" {
-  description = "允许访问 NodePort 入口的来源 CIDR；必须收敛为自己的公网 IP/32（与 ssh_cidr 同值即可）"
+  description = "允许访问 NodePort 入口的来源 CIDR；本机 IP 会变/开代理时用 0.0.0.0/0（GitHub Webhook 30081 也需要它放行）"
   type        = string
   default     = ""
 
   validation {
-    condition     = length(trimspace(var.node_port_cidr)) > 0 && var.node_port_cidr != "0.0.0.0/0" && can(cidrhost(var.node_port_cidr, 0))
-    error_message = "必须提供 node_port_cidr（例如 1.2.3.4/32）：禁止留空，也禁止 0.0.0.0/0（Harbor/ArgoCD/Grafana 密码较弱，入口必须只对自己的 IP 开放）。"
+    condition     = length(trimspace(var.node_port_cidr)) > 0 && can(cidrhost(var.node_port_cidr, 0))
+    error_message = "必须提供 node_port_cidr（合法 CIDR，例如 0.0.0.0/0 或 1.2.3.4/32），禁止留空。"
   }
 }
 
