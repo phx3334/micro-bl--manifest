@@ -1,27 +1,31 @@
 # KEDA：事件驱动扩缩容（worker 的 Kafka lag 触发 + 业务的 CPU 触发）。
 # 必须在 metrics-server 之后：cpu trigger 依赖 Metrics API；
 # 必须在 ArgoCD 之前：apps chart 里有 ScaledObject，CRD 不存在时 ArgoCD 同步会失败。
+#
+# 不走 helm repo：chart tgz 直接下到本地（带重试）。
 ---
-- name: 添加 KEDA Helm 仓库
-  command: helm repo add --force-update kedacore {{ helm_repos.keda }}
-  changed_when: false
-
-- name: 更新 KEDA 仓库索引
-  command: helm repo update kedacore
-  changed_when: false
+- name: 下载 KEDA chart 包
+  get_url:
+    url: "https://kedacore.github.io/charts/keda-{{ chart_versions.keda }}.tgz"
+    dest: "{{ ansible_workdir }}/keda-{{ chart_versions.keda }}.tgz"
+    mode: "0644"
+    timeout: 120
+  register: keda_chart_download
+  retries: 3
+  delay: 5
+  until: keda_chart_download is succeeded
 
 - name: 安装 KEDA
   command:
+    argv:
     - helm
     - upgrade
     - --install
     - keda
-    - kedacore/keda
+    - "{{ ansible_workdir }}/keda-{{ chart_versions.keda }}.tgz"
     - --namespace
     - keda
     - --create-namespace
-    - --version
-    - "{{ chart_versions.keda }}"
     - --wait
     - --timeout
     - 5m

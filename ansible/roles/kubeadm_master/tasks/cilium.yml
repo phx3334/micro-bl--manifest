@@ -1,13 +1,24 @@
 # Cilium：kubeadm init 之后立刻安装，节点才能从 NotReady 变 Ready。
-# values 文件从控制端仓库复制到远端，保证 chart 配置只有一份来源。
+# 不走 helm repo：helm.cilium.io 在国内 ECS 上会超时（curl 通、helm 卡死）。
+# 改为从 GitHub tag 下载源码包，用里面的本地 chart 安装；values 仍从仓库复制。
 ---
-- name: 添加 Cilium Helm 仓库
-  command: helm repo add --force-update cilium {{ helm_repos.cilium }}
-  changed_when: false
+- name: 下载 Cilium chart（GitHub archive）
+  get_url:
+    url: "https://github.com/cilium/cilium/archive/refs/tags/v{{ chart_versions.cilium }}.tar.gz"
+    dest: "{{ ansible_workdir }}/cilium-{{ chart_versions.cilium }}.tar.gz"
+    mode: "0644"
+    timeout: 180
+  register: cilium_chart_download
+  retries: 3
+  delay: 5
+  until: cilium_chart_download is succeeded
 
-- name: 更新 Cilium 仓库索引
-  command: helm repo update cilium
-  changed_when: false
+- name: 解压 Cilium chart
+  unarchive:
+    src: "{{ ansible_workdir }}/cilium-{{ chart_versions.cilium }}.tar.gz"
+    dest: "{{ ansible_workdir }}"
+    remote_src: true
+    creates: "{{ ansible_workdir }}/cilium-{{ chart_versions.cilium }}/install/kubernetes/cilium/Chart.yaml"
 
 - name: 复制 Cilium values 到远端
   copy:
@@ -22,22 +33,20 @@
 
 - name: 安装 / 升级 Cilium
   command:
+    argv:
     - helm
     - upgrade
     - --install
     - cilium
-    - cilium/cilium
+    - "{{ ansible_workdir }}/cilium-{{ chart_versions.cilium }}/install/kubernetes/cilium"
     - --namespace
     - kube-system
-    - --version
-    - "{{ chart_versions.cilium }}"
     - --values
     - "{{ ansible_workdir }}/values.yaml"
     - --values
     - "{{ ansible_workdir }}/values-prod.yaml"
-    - --wait
-    - --timeout
-    - 10m
+    # 不能用 --wait：hubble-ui / hubble-relay 在只有 master 的阶段会被
+    # control-plane 污点挡住，永远等不到 Ready。DaemonSet 由下一步单独等。
 
 - name: 等待 Cilium DaemonSet 就绪
   command: kubectl -n kube-system rollout status daemonset/cilium --timeout=600s

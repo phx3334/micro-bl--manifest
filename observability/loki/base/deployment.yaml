@@ -40,6 +40,9 @@ spec:
           image: grafana/loki:3.3.2
           args:
             - -config.file=/conf/loki.yaml
+            # Loki 不会自动展开配置文件里的 ${VAR}，必须显式开这个开关
+            # （loki.yaml 里的 ${LOKI_RETENTION:-168h} 依赖它）
+            - -config.expand-env=true
           env:
             # 保留期：base 给默认值，overlays/*/patch-loki.yaml 按环境覆盖
             - name: LOKI_RETENTION

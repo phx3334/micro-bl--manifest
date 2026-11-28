@@ -5,3 +5,19 @@ webhook:
   replicaCount: 2
 cainjector:
   replicaCount: 2
+
+# 源码 chart（GitHub archive）里的 image.tag 是 v0.0.0 开发占位符，
+# 正式发布时才被替换；本地安装必须显式指到实际版本，否则 ImagePullBackOff。
+image:
+  tag: v1.21.3
+webhook:
+  replicaCount: 2
+  image:
+    tag: v1.21.3
+cainjector:
+  replicaCount: 2
+  image:
+    tag: v1.21.3
+startupapicheck:
+  image:
+    tag: v1.21.3

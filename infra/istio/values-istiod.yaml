@@ -12,6 +12,10 @@ resources:
 # istiod、sidecar-injector 等 Istio 组件日志输出为 JSON 格式，方便 OTel Collector filelog 采集进 Loki
 global:
   logAsJson: true
+  # chart 1.30 默认 registry.istio.io（国内不可达）；改回 Docker Hub，
+  # containerd 已配 docker.m.daocloud.io 加速
+  hub: docker.io/istio
+  tag: "1.30.6"
 
 # 头采 30%
 pilot:

@@ -95,6 +95,14 @@ spec:
         - name: provisioning
           configMap:
             name: grafana-provisioning
+            # Grafana 只扫描 provisioning/datasources/*.yaml 和
+            # provisioning/dashboards/*.yaml；文件平铺在 provisioning 根目录
+            # 不会被加载（现象：登录后没有任何数据源和看板）
+            items:
+              - key: datasources.yaml
+                path: datasources/datasources.yaml
+              - key: dashboards.yaml
+                path: dashboards/dashboards.yaml
         - name: dashboards
           configMap:
             name: grafana-dashboards

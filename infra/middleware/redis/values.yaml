@@ -37,30 +37,12 @@ master:
     size: 10Gi
 
 # 指标：metrics.enabled → redis_exporter sidecar（9121）+ ServiceMonitor
-# 开 TLS 后 exporter 必须走 rediss:// 并信任内部根 CA，
-# 否则 9104/9121 这类抓取会全红（业务正常、只丢指标）。
-# 键名 metrics.extraEnvVars / extraVolumes 随 chart 版本可能不同，安装前核对。
+# chart 23.x 在 tls.enabled 时会自动给 exporter 配 rediss:// + CA 文件，
+# 并把 redis-tls 挂到 /opt/bitnami/redis/certs —— 不需要再手写 extraEnvVars，重复注入只会产生重复 env。
 metrics:
   enabled: true
   serviceMonitor:
     enabled: true
-  extraEnvVars:
-    - name: REDIS_ADDR
-      value: rediss://127.0.0.1:6379
-    # Go 的 crypto/x509 会读这个变量作为系统根证书
-    - name: SSL_CERT_FILE
-      value: /certs/internal-ca.crt
-  extraVolumes:
-    - name: internal-ca
-      configMap:
-        name: internal-ca
-        items:
-          - key: ca.crt
-            path: internal-ca.crt
-  extraVolumeMounts:
-    - name: internal-ca
-      mountPath: /certs
-      readOnly: true
 
 # ── 单向 TLS ──────────────────────────────────────────────────
 # 证书由 cert-manager 签发（middleware-certificates.yaml），Secret redis-tls。

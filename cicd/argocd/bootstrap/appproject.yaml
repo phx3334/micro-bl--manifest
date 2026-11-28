@@ -15,8 +15,9 @@ spec:
   description: micro-bl —— 仓库 / 目标命名空间 / 集群级资源三重白名单
 
   # 只允许从 manifest 仓库拉取；换仓库时同步改这里和四个 Application
-  sourceRepositories:
-    - repoURL: https://github.com/phx3334/micro-bl--manifest.git
+  # 字段名是 sourceRepos（sourceRepositories 在 ArgoCD 3.x 的 CRD 中不存在）
+  sourceRepos:
+    - https://github.com/phx3334/micro-bl--manifest.git
 
   # 允许同步的目标命名空间（多一个都不行）
   destinations:

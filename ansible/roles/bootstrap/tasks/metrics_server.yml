@@ -1,25 +1,30 @@
 # metrics-server：HPA（istiod / ingressgateway / 业务）依赖它提供指标。
 # kubeadm 集群的 kubelet 是自签证书，必须加 --kubelet-insecure-tls。
+#
+# 不走 helm repo：chart tgz 直接下到本地（GitHub release 偶发 reset，带重试）。
+# 避免每次 helm 安装都重新从 release-assets.githubusercontent.com 拉包。
 ---
-- name: 添加 metrics-server Helm 仓库
-  command: helm repo add --force-update metrics-server {{ helm_repos.metrics_server }}
-  changed_when: false
-
-- name: 更新 metrics-server 仓库索引
-  command: helm repo update metrics-server
-  changed_when: false
+- name: 下载 metrics-server chart 包
+  get_url:
+    url: "https://github.com/kubernetes-sigs/metrics-server/releases/download/metrics-server-helm-chart-{{ chart_versions.metrics_server }}/metrics-server-{{ chart_versions.metrics_server }}.tgz"
+    dest: "{{ ansible_workdir }}/metrics-server-{{ chart_versions.metrics_server }}.tgz"
+    mode: "0644"
+    timeout: 120
+  register: metrics_chart_download
+  retries: 3
+  delay: 5
+  until: metrics_chart_download is succeeded
 
 - name: 安装 metrics-server
   command:
+    argv:
     - helm
     - upgrade
     - --install
     - metrics-server
-    - metrics-server/metrics-server
+    - "{{ ansible_workdir }}/metrics-server-{{ chart_versions.metrics_server }}.tgz"
     - --namespace
     - kube-system
-    - --version
-    - "{{ chart_versions.metrics_server }}"
     - --set
     - "args={--kubelet-insecure-tls}"
     - --wait

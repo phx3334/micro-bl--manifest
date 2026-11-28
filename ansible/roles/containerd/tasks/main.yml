@@ -30,8 +30,10 @@
   apt:
     name: "containerd.io={{ containerd_version }}"
     state: present
+    # 必须每次刷新索引：docker.list 是本角色刚写入的，
+    # cache_valid_time 会因 common 角色刚更新过缓存而跳过 apt-get update，
+    # 导致新源未加载、报 "No package matching 'containerd.io' is available"
     update_cache: true
-    cache_valid_time: 3600
 
 - name: 创建 containerd 配置目录
   file:
@@ -57,6 +59,77 @@
     owner: root
     group: root
     mode: "0755"
+
+# 注意：一旦设置 registry.config_path，containerd 就只读 certs.d 下的 hosts.toml，
+# config.toml 里的 registry.mirrors 会被忽略（写了还会导致 CRI 不加载）。
+# 国内不可达的 registry 统一在这里配镜像加速，server 作为兜底保留。
+- name: 创建镜像加速配置目录
+  file:
+    path: "/etc/containerd/certs.d/{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - docker.io
+    - registry-1.docker.io
+    - registry.k8s.io
+    - ghcr.io
+    - quay.io
+    - gcr.io
+
+- name: 配置镜像加速 hosts.toml
+  copy:
+    dest: "/etc/containerd/certs.d/{{ item.key }}/hosts.toml"
+    content: "{{ item.content }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - key: docker.io
+      content: |
+        server = "https://docker.io"
+
+        [host."https://docker.m.daocloud.io"]
+          capabilities = ["pull", "resolve"]
+
+        [host."https://docker.1ms.run"]
+          capabilities = ["pull", "resolve"]
+    # Bitnami chart 新版默认用 registry-1.docker.io（不是 docker.io），漏了它会绕过加速直连
+    - key: registry-1.docker.io
+      content: |
+        server = "https://registry-1.docker.io"
+
+        [host."https://docker.m.daocloud.io"]
+          capabilities = ["pull", "resolve"]
+
+        [host."https://docker.1ms.run"]
+          capabilities = ["pull", "resolve"]
+    - key: registry.k8s.io
+      content: |
+        server = "https://registry.k8s.io"
+
+        [host."https://k8s.m.daocloud.io"]
+          capabilities = ["pull", "resolve"]
+    - key: ghcr.io
+      content: |
+        server = "https://ghcr.io"
+
+        [host."https://ghcr.m.daocloud.io"]
+          capabilities = ["pull", "resolve"]
+    - key: quay.io
+      content: |
+        server = "https://quay.io"
+
+        [host."https://quay.m.daocloud.io"]
+          capabilities = ["pull", "resolve"]
+    - key: gcr.io
+      content: |
+        server = "https://gcr.io"
+
+        [host."https://gcr.m.daocloud.io"]
+          capabilities = ["pull", "resolve"]
+  notify: restart containerd
 
 - name: 启动并开机自启 containerd
   systemd:

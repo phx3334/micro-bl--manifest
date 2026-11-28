@@ -1,3 +1,18 @@
+# Bitnami 2025-08 起免费镜像下线，bitnami/* 拉取返回 403；
+# legacy 仓库保留最终快照，统一改用 bitnamilegacy + latest。
+image:
+  registry: docker.io
+  repository: bitnamilegacy/mysql
+  tag: latest
+
+# 指标 sidecar 同样指向 legacy 快照（bitnami/mysqld-exporter 已 403）。
+# 保留原版本 tag：legacy 仓库按原 tag 保存了最终快照。
+metrics:
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/mysqld-exporter
+    tag: 0.17.2-debian-12-r16
+
 # 密码不入库：由 Secret mysql-credentials（middleware）提供，键名固定为
 # mysql-password / mysql-root-password / mysql-replication-password
 # （bitnami/mysql 的 auth.existingSecret 约定，三个键都必须存在）。

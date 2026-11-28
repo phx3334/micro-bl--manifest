@@ -1,13 +1,22 @@
 # Istio 1.30.6：base（CRD）→ istiod（信任锚来自 cert-manager 的 cacerts）→ gateway
 # 必须在 ArgoCD 之前装：platform-infra Application 会 apply Gateway/VirtualService 等 CR。
+#
+# 不走 helm repo：三份 chart tgz 从官方 storage 直接下到本地（带重试）。
 ---
-- name: 添加 Istio Helm 仓库
-  command: helm repo add --force-update istio {{ helm_repos.istio }}
-  changed_when: false
-
-- name: 更新 Istio 仓库索引
-  command: helm repo update istio
-  changed_when: false
+- name: 下载 Istio chart 包
+  get_url:
+    url: "https://istio-release.storage.googleapis.com/charts/{{ item }}-{{ chart_versions.istio }}.tgz"
+    dest: "{{ ansible_workdir }}/{{ item }}-{{ chart_versions.istio }}.tgz"
+    mode: "0644"
+    timeout: 180
+  loop:
+    - base
+    - istiod
+    - gateway
+  register: istio_chart_download
+  retries: 3
+  delay: 5
+  until: istio_chart_download is succeeded
 
 - name: 复制 Istio values
   copy:
@@ -23,16 +32,15 @@
 
 - name: 安装 istio-base（CRD / 集群级 RBAC）
   command:
+    argv:
     - helm
     - upgrade
     - --install
     - istio-base
-    - istio/base
+    - "{{ ansible_workdir }}/base-{{ chart_versions.istio }}.tgz"
     - --namespace
     - istio-system
     - --create-namespace
-    - --version
-    - "{{ chart_versions.istio }}"
     - --values
     - "{{ ansible_workdir }}/values-base.yaml"
     - --wait
@@ -41,15 +49,14 @@
 
 - name: 安装 istiod
   command:
+    argv:
     - helm
     - upgrade
     - --install
     - istiod
-    - istio/istiod
+    - "{{ ansible_workdir }}/istiod-{{ chart_versions.istio }}.tgz"
     - --namespace
     - istio-system
-    - --version
-    - "{{ chart_versions.istio }}"
     - --values
     - "{{ ansible_workdir }}/values-istiod.yaml"
     - --values
@@ -60,15 +67,14 @@
 
 - name: 安装 ingressgateway（NodePort 30080）
   command:
+    argv:
     - helm
     - upgrade
     - --install
     - istio-ingress
-    - istio/gateway
+    - "{{ ansible_workdir }}/gateway-{{ chart_versions.istio }}.tgz"
     - --namespace
     - istio-system
-    - --version
-    - "{{ chart_versions.istio }}"
     - --values
     - "{{ ansible_workdir }}/values-gateway.yaml"
     - --values

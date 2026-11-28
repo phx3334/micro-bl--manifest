@@ -35,5 +35,7 @@ apiServer:
 apiVersion: kubelet.config.k8s.io/v1beta1
 kind: KubeletConfiguration
 cgroupDriver: systemd
-# workers 上是 /data/kubelet（80G 数据盘），masters 上是系统盘默认路径
-rootDir: "{{ kubelet_root_dir }}"
+# 注意：KubeletConfiguration 没有 rootDir 字段，写了会触发
+# strict decoding error: unknown field "rootDir" 并被丢弃。
+# kubelet 数据目录由 /etc/default/kubelet 的 KUBELET_EXTRA_ARGS=--root-dir=...
+# 指定（workers 为 /data/kubelet，见 kubeadm_worker 角色）。

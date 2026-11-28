@@ -12,8 +12,11 @@ ${w.name} ansible_host=${w.public_ip} private_ip=${w.private_ip}
 %{ endfor ~}
 
 # 全局变量：所有节点生效
+# INI inventory 不支持行尾注释：注释必须独占一行，否则会并入变量值
 [all:vars]
 ansible_user=root
 ansible_python_interpreter=/usr/bin/python3
-apiserver_endpoint=${apiserver_endpoint} # CLB控制面入口
-entry_ip=${entry_ip} # 统一公网入口（EIP 绑 SLB）：Harbor/证书/REPLACE_WITH_SERVER_IP 用它
+# 控制面入口（私网 CLB host:port）
+apiserver_endpoint=${apiserver_endpoint}
+# 统一公网入口（EIP 绑 SLB）：Harbor / 证书 / REPLACE_WITH_SERVER_IP 用它
+entry_ip=${entry_ip}

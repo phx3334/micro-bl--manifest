@@ -1,5 +1,24 @@
 # 工作节点：用第一个 master 生成的 token 加入集群
 ---
+# kubelet 数据目录放在 80G 数据盘，避免镜像/日志撑爆 40G 系统盘。
+# KubeletConfiguration 没有 rootDir 字段，只能通过 --root-dir 传参。
+- name: 创建 kubelet 数据目录
+  file:
+    path: "{{ kubelet_root_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: 指定 kubelet 数据目录（数据盘）
+  copy:
+    dest: /etc/default/kubelet
+    content: |
+      KUBELET_EXTRA_ARGS=--root-dir={{ kubelet_root_dir }}
+    owner: root
+    group: root
+    mode: "0644"
+
 - name: 加入集群
   command: >-
     kubeadm join {{ apiserver_endpoint }}

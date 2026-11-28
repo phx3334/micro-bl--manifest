@@ -33,8 +33,9 @@
       - "kubeadm={{ kube_package_version }}"
       - "kubectl={{ kube_package_version }}"
     state: present
+    # 同上：kubernetes.list 是本角色刚写入的，带 cache_valid_time 会跳过
+    # apt-get update，新源未加载 → "No package matching 'kubelet' is available"
     update_cache: true
-    cache_valid_time: 3600
 
 - name: 锁定 Kubernetes 组件版本
   dpkg_selections:

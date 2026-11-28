@@ -5,6 +5,11 @@
 
 cluster_name: micro-bl
 apiserver_port: 6443
+
+# 控制面入口：内网 CLB VIP（10.0.1.121:6443）在 VPC 内不可达（SYN 超时），
+# 但同一 SLB 的 EIP 入口正常（EIP:6443 实测 200）。统一走 EIP，
+# 同名变量在 group_vars 中优先级高于 terraform 生成的 inventory [all:vars]。
+apiserver_endpoint: "121.196.109.9:6443"
 pod_subnet: "10.244.0.0/16"
 service_subnet: "10.96.0.0/12"
 

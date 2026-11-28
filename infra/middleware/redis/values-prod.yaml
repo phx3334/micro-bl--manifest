@@ -1,3 +1,19 @@
+# Bitnami 免费镜像下线，统一改用 bitnamilegacy 最终快照
+image:
+  registry: docker.io
+  repository: bitnamilegacy/redis
+  tag: latest
+sentinel:
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/redis-sentinel
+    tag: latest
+metrics:
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/redis-exporter
+    tag: latest
+
 # 密码不入库：由 Secret redis-credentials（middleware）提供，
 # 键名 redis-password（auth.existingSecretPasswordKey 显式指定）。
 # 创建命令见 README step 4；密码必须与 apps/micro-bl 的

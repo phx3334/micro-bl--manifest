@@ -141,9 +141,14 @@ spec:
     - minio.middleware
     - minio.middleware.svc
     - minio.middleware.svc.cluster.local
+    # bitnami 的 setup.sh 用 https://localhost:9000 配置 mc，
+    # 证书 SAN 少了 localhost/127.0.0.1 会直接 "Failed to add temporary MinIO server"
+    - localhost
   ipAddresses:
-    # ⚠️ 与 harbor-tls 同一个占位符：浏览器直链和 Pod 都走 NodePort IP
+    # 浏览器直链和 Pod 都走 NodePort IP（与 harbor-tls 同一个占位符）
     - 121.196.109.9
+    # 容器内 mc 连 127.0.0.1 也需要 IP SAN
+    - 127.0.0.1
   issuerRef:
     name: micro-bl-ca-issuer
     kind: ClusterIssuer

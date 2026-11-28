@@ -8,7 +8,8 @@
   become: true
   any_errors_fatal: true
   vars:
-    infra_repo: "{{ playbook_dir | dirname }}"
+    # playbook_dir = <repo>/ansible/playbooks，两次 dirname 才是仓库根
+    infra_repo: "{{ playbook_dir | dirname | dirname }}"
   pre_tasks:
     - name: 计算统一公网入口 IP（Harbor externalURL / 证书 SAN）
       set_fact:

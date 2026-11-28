@@ -1,5 +1,9 @@
 # Tekton Pipelines + Triggers：官方只有 release 清单，没有 Helm chart。
 # 必须 server-side apply（CRD 体积大，client-side 的 last-applied 注解会超限）。
+#
+# 不用 kustomize 的远程 resource：kubectl apply -k 每次都要重新从 GitHub 下载
+# 两份 release.yaml，国内很慢。这里先 get_url 缓存到远端（带重试），再本地 apply。
+# 版本与 cicd/tekton-platform/kustomization.yaml 保持一致，升级时两处同步改。
 ---
 - name: 创建 Tekton 清单目录
   file:
@@ -9,13 +13,32 @@
     group: root
     mode: "0700"
 
-- name: 复制 Tekton 平台清单
-  copy:
-    src: "{{ infra_repo }}/cicd/tekton-platform"
-    dest: "{{ ansible_workdir }}/tekton/"
+- name: 下载 Tekton release 清单（带重试）
+  get_url:
+    url: "{{ item.url }}"
+    dest: "{{ ansible_workdir }}/tekton/{{ item.dest }}"
+    mode: "0644"
+    timeout: 180
+  loop:
+    - url: "https://github.com/tektoncd/pipeline/releases/download/v1.18.0/release.yaml"
+      dest: pipeline-v1.18.0-release.yaml
+    - url: "https://github.com/tektoncd/triggers/releases/download/v0.38.0/release.yaml"
+      dest: triggers-v0.38.0-release.yaml
+    # release.yaml 不含 core interceptors（Deployment/Service/ClusterInterceptor
+    # 和 config-triggers-core-interceptors ConfigMap 都在这个独立资产里）
+    - url: "https://github.com/tektoncd/triggers/releases/download/v0.38.0/interceptors.yaml"
+      dest: triggers-v0.38.0-interceptors.yaml
+  register: tekton_release_download
+  retries: 3
+  delay: 5
+  until: tekton_release_download is succeeded
 
 - name: 安装 Tekton Pipelines / Triggers
-  command: kubectl apply --server-side -k {{ ansible_workdir }}/tekton/tekton-platform
+  command: >-
+    kubectl apply --server-side
+    -f {{ ansible_workdir }}/tekton/pipeline-v1.18.0-release.yaml
+    -f {{ ansible_workdir }}/tekton/triggers-v0.38.0-release.yaml
+    -f {{ ansible_workdir }}/tekton/triggers-v0.38.0-interceptors.yaml
 
 - name: 等待 Tekton Pipelines controller
   command: kubectl -n tekton-pipelines rollout status deployment/tekton-pipelines-controller --timeout=600s

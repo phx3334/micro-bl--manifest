@@ -1,13 +1,18 @@
 # Harbor：镜像仓库 + 内部 CA 信任链的第一个真实消费者
 # externalURL 必须与 apps images.registry / Tekton 的 docker-server 完全一致
+#
+# 不走 helm repo：chart tgz 从 helm.goharbor.io 直接下到本地（带重试）。
 ---
-- name: 添加 Harbor Helm 仓库
-  command: helm repo add --force-update goharbor {{ helm_repos.harbor }}
-  changed_when: false
-
-- name: 更新 Harbor 仓库索引
-  command: helm repo update goharbor
-  changed_when: false
+- name: 下载 Harbor chart 包
+  get_url:
+    url: "https://helm.goharbor.io/harbor-{{ chart_versions.harbor }}.tgz"
+    dest: "{{ ansible_workdir }}/harbor-{{ chart_versions.harbor }}.tgz"
+    mode: "0644"
+    timeout: 180
+  register: harbor_chart_download
+  retries: 3
+  delay: 5
+  until: harbor_chart_download is succeeded
 
 - name: 复制 Harbor values
   copy:
@@ -20,15 +25,14 @@
 
 - name: 安装 Harbor
   command:
+    argv:
     - helm
     - upgrade
     - --install
     - harbor
-    - goharbor/harbor
+    - "{{ ansible_workdir }}/harbor-{{ chart_versions.harbor }}.tgz"
     - --namespace
     - platform-system
-    - --version
-    - "{{ chart_versions.harbor }}"
     - --values
     - "{{ ansible_workdir }}/harbor-values.yaml"
     - --values

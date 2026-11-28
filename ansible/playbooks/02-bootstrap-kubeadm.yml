@@ -7,7 +7,8 @@
   become: true
   any_errors_fatal: true
   vars:
-    infra_repo: "{{ playbook_dir | dirname }}"
+    # playbook_dir = <repo>/ansible/playbooks，两次 dirname 才是仓库根
+    infra_repo: "{{ playbook_dir | dirname | dirname }}"
   roles:
     - kubeadm_master
 

@@ -5,7 +5,8 @@
 # 一个环境相关的值不写死，由 Deployment 的 env 注入：
 #   LOKI_RETENTION  保留期（compactor 按期清理过期日志）
 #
-# 注意：Loki 配置文件原生支持 ${VAR} 和 ${VAR:-默认} 展开，不需要额外的 expand-env 开关。
+# 注意：Loki 原生支持 ${VAR} 和 ${VAR:-默认}，但必须启动时加 -config.expand-env=true
+# （见 deployment.yaml 的 args），否则会报 "not a valid duration string"。
 
 auth_enabled: false      # 单租户 demo；开多租户必须打开，否则单租户模式下写入会带假 tenant
 
@@ -47,7 +48,8 @@ limits_config:
 compactor:
   working_directory: /var/loki/compactor
   retention_enabled: true   # retention_period 只是声明，真正删数据靠 compactor
+  # Loki 3.x 起：开 retention 必须显式声明删除请求存哪，否则启动校验直接失败
+  delete_request_store: filesystem
 
-# 查询时单条日志默认限 5000 行，查日志体（不是查 count）时会用到
-querier:
-  max_entries_limit_per_query: 10000
+# Loki 3.x 已移除 querier.max_entries_limit_per_query（3.x 里会直接 unknown field 启动失败）；
+# 演示用默认限制即可，需要再按 3.x 的 limits_config 字段调。

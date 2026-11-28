@@ -5,6 +5,15 @@
     path: /etc/kubernetes/admin.conf
   register: master_admin_conf
 
+# 工作目录由 03 的 bootstrap 角色创建，但 02 渲染 kubeadm 配置时就要用，必须自己建
+- name: 创建工作目录
+  file:
+    path: "{{ ansible_workdir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
 - name: 生成控制面证书加密 key（仅首次 init 用）
   command: openssl rand -hex 32
   register: kubeadm_cert_key

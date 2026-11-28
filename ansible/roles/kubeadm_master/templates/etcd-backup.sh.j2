@@ -34,10 +34,11 @@ ETCDCTL="etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki
 kubectl -n kube-system exec "${POD}" -- ${ETCDCTL} snapshot save "/var/lib/etcd/${SNAP_NAME}"
 
 # 2) 校验：快照文件非空才算数——坏快照比没有快照更危险
-#    （snapshot status 需要完整解析元数据，非空已足够拦截"写了一半"的情况）
-if ! kubectl -n kube-system exec "${POD}" -- test -s "/var/lib/etcd/${SNAP_NAME}"; then
-  echo "[$(date -Is)] ERROR: 快照校验失败（文件为空）" >&2
-  kubectl -n kube-system exec "${POD}" -- rm -f "/var/lib/etcd/${SNAP_NAME}"
+#    必须在宿主机校验：etcd 镜像是 distroless，容器里没有 test/rm。
+#    /var/lib/etcd 是 hostPath，宿主机看到的就是同一个文件。
+if [ ! -s "/var/lib/etcd/${SNAP_NAME}" ]; then
+  echo "[$(date -Is)] ERROR: 快照校验失败（文件不存在或为空）" >&2
+  rm -f "/var/lib/etcd/${SNAP_NAME}"
   exit 1
 fi
 

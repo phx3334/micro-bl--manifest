@@ -74,7 +74,8 @@ connectors:
     dimensions_cache_size: 1000
 
 exporters:
-  tempo:
+  # contrib 没有名为 tempo 的 exporter；Tempo 走标准 OTLP gRPC 接收
+  otlp/tempo:
     endpoint: tempo:4317        #主动发送给Tempo
     tls:
       insecure: true
@@ -111,7 +112,7 @@ service:
     traces/sampled:
       receivers: [otlp]
       processors: [memory_limiter, tail_sampling, batch]
-      exporters: [tempo]
+      exporters: [otlp/tempo]
     metrics:
       receivers: [otlp, spanmetrics]   # 业务推送指标 + span 派生指标汇到同一出口
       processors: [memory_limiter, batch]

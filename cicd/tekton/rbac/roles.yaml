@@ -36,3 +36,65 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: tekton-triggers-create-pipelinerun
+---
+# EventListener sink 启动时要把 TriggerBinding / TriggerTemplate / EventListener
+# 等都开 informer 缓存，只授 pipelineruns 是不够的（会 failed to start informers）。
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tekton-triggers-eventlistener
+  namespace: platform-system
+  labels:
+    app.kubernetes.io/part-of: micro-bl
+rules:
+  - apiGroups: ["triggers.tekton.dev"]
+    resources:
+      - eventlisteners
+      - triggerbindings
+      - triggertemplates
+      - triggers
+      - interceptors
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-triggers-eventlistener
+  namespace: platform-system
+  labels:
+    app.kubernetes.io/part-of: micro-bl
+subjects:
+  - kind: ServiceAccount
+    name: tekton-triggers-sa
+    namespace: platform-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tekton-triggers-eventlistener
+---
+# ClusterInterceptor / ClusterTriggerBinding 是集群级资源，必须 ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: micro-bl-tekton-triggers-cluster
+  labels:
+    app.kubernetes.io/part-of: micro-bl
+rules:
+  - apiGroups: ["triggers.tekton.dev"]
+    resources: ["clusterinterceptors", "clustertriggerbindings"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: micro-bl-tekton-triggers-cluster
+  labels:
+    app.kubernetes.io/part-of: micro-bl
+subjects:
+  - kind: ServiceAccount
+    name: tekton-triggers-sa
+    namespace: platform-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: micro-bl-tekton-triggers-cluster

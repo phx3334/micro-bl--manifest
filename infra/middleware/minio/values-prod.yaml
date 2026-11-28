@@ -11,8 +11,8 @@ service:
   nodePorts:
     api: "30900"
 
-# 注意：新版 bitnami/minio 已移除内置 Console（无 consoleService 键），
-# 需要管理界面时用 `mc` 客户端或独立部署 Object Browser；旧版 chart 可补 30901。
+# Console（minio-object-browser）在 values.yaml 里显式关闭：
+# bitnami 镜像 403，且演示只需要 S3 API；管理操作走 mc 客户端。
 
 # 媒体桶 + Tempo 的 prod 桶（overlays/prod 的 TEMPO_S3_BUCKET=tempo-prod）
 defaultBuckets: micro-bl,tempo-prod

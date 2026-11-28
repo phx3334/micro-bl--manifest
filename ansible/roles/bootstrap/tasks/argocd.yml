@@ -1,14 +1,20 @@
 # ArgoCD：引导层，自己不由 GitOps 管理。
 # 安装后 apply AppProject + root Application，之后 infra/overlays/prod 与 apps/micro-bl
 # 全部由它接管。
+# 不走 helm repo（argoproj.github.io 国内时通时断）。
+# 用 release 里打包好的 chart tgz：源码 archive 缺 charts/redis-ha 依赖，会报
+# "found in Chart.yaml, but missing in charts/ directory: redis-ha"
 ---
-- name: 添加 Argo Helm 仓库
-  command: helm repo add --force-update argo {{ helm_repos.argo }}
-  changed_when: false
-
-- name: 更新 Argo 仓库索引
-  command: helm repo update argo
-  changed_when: false
+- name: 下载 ArgoCD chart 包
+  get_url:
+    url: "https://github.com/argoproj/argo-helm/releases/download/argo-cd-{{ chart_versions.argo_cd }}/argo-cd-{{ chart_versions.argo_cd }}.tgz"
+    dest: "{{ ansible_workdir }}/argo-cd-{{ chart_versions.argo_cd }}.tgz"
+    mode: "0644"
+    timeout: 180
+  register: argo_chart_download
+  retries: 3
+  delay: 5
+  until: argo_chart_download is succeeded
 
 - name: 创建 ArgoCD 清单目录
   file:
@@ -25,16 +31,15 @@
 
 - name: 安装 ArgoCD
   command:
+    argv:
     - helm
     - upgrade
     - --install
     - argocd
-    - argo/argo-cd
+    - "{{ ansible_workdir }}/argo-cd-{{ chart_versions.argo_cd }}.tgz"
     - --namespace
     - argocd
     - --create-namespace
-    - --version
-    - "{{ chart_versions.argo_cd }}"
     - --values
     - "{{ ansible_workdir }}/argocd/bootstrap/argo-cd-values.yaml"
     - --values

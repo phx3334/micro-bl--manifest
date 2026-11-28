@@ -21,4 +21,9 @@ state = "{{ containerd_state }}"
 
 [plugins."io.containerd.grpc.v1.cri".registry]
   # /etc/containerd/certs.d/<registry-host>/hosts.toml + ca.crt
+  # 注意：设置 config_path 后，绝不能再写 registry.mirrors —— containerd 会直接
+  # 拒绝加载 CRI 插件（invalid plugin config: mirrors cannot be set when
+  # config_path is provided），表现为所有节点 NotReady、kubelet 报
+  # unknown service runtime.v1.RuntimeService。
+  # Docker Hub 加速写在 /etc/containerd/certs.d/docker.io/hosts.toml（见下）。
   config_path = "/etc/containerd/certs.d"

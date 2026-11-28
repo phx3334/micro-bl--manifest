@@ -34,12 +34,11 @@ spec:
           params:
             - name: filter
               value: "body.ref == 'refs/heads/main'"
+      # Triggers v0.38 的 CRD 里 bindings[].ref / template.ref 是字符串（不是 {name: ...} 对象）
       bindings:
-        - ref:
-            name: github-push
+        - ref: github-push
       template:
-        ref:
-          name: build-app
+        ref: build-app
   resources:
     kubernetesResource:
       serviceType: ClusterIP

@@ -46,6 +46,9 @@ server:
     type: NodePort
     # 与既有端口不冲突：30080 istio、30081 tekton webhook、30082 argocd
     nodePortHttp: 30082
+    # chart 默认 https NodePort 是 30443，与 istio-ingressgateway 冲突；
+    # server.insecure=true 时 443 不提供服务，这里显式挪到空闲端口避免抢占
+    nodePortHttps: 30083
   resources:
     requests:
       cpu: 50m

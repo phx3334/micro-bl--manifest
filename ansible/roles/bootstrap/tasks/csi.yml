@@ -34,6 +34,7 @@
 
 - name: 安装 / 升级阿里云 CSI
   command:
+    argv:
     - helm
     - upgrade
     - --install

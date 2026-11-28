@@ -10,6 +10,13 @@ ipam:
 # 回滚：helm upgrade 把此值改回 false，并去掉 kubeadm 的 --skip-phases 后重建集群。
 kubeProxyReplacement: true
 
+# kube-proxy 被跳过，Cilium 起来前 Service IP（10.96.0.1）不可用。
+# 必须显式给 apiserver 地址，否则 config 容器连 10.96.0.1 会超时：
+#   dial tcp 10.96.0.1:443: i/o timeout → Init:Error → helm --wait 超时。
+# 地址与 kubeadm controlPlaneEndpoint 保持一致（当前为统一入口 EIP）。
+k8sServiceHost: "121.196.109.9"
+k8sServicePort: "6443"
+
 
 rollOutCiliumPods: true
 

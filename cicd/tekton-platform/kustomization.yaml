@@ -4,3 +4,6 @@ kind: Kustomization
 resources:
   - https://github.com/tektoncd/pipeline/releases/download/v1.18.0/release.yaml
   - https://github.com/tektoncd/triggers/releases/download/v0.38.0/release.yaml
+  # release.yaml 不含 core interceptors（Deployment/Service/ClusterInterceptor
+  # 以及 controller 依赖的 config-triggers-core-interceptors ConfigMap）
+  - https://github.com/tektoncd/triggers/releases/download/v0.38.0/interceptors.yaml
